@@ -1,0 +1,3 @@
+.direnv
+/__pycache__/
+rust/custom_op/target/*
