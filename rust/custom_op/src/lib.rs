@@ -6,12 +6,27 @@ use std::os::raw::{c_char, c_void};
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
+mod api;
+
+type Result<T> = std::result::Result<T, OrtStatusPtr>;
+
 fn str_to_c_char_ptr(s: &str) -> *const c_char {
     CString::new(s).unwrap().into_raw()
 }
 
+/// Wraps a status pointer into a result.
+///
+///A null pointer is mapped to the `Ok(())`.
+fn status_to_result(ptr: OrtStatusPtr) -> Result<()> {
+    if ptr == std::ptr::null_mut() {
+	Ok(())
+    } else {
+	Err(ptr)
+    }
+}
+
 impl OrtApi {
-    fn create_error_status(&self, code: u32, msg: &str) -> *mut OrtStatus {
+    fn create_error_status(&self, code: u32, msg: &'static str) -> *mut OrtStatus {
         let c_char_ptr = str_to_c_char_ptr(msg);
         unsafe { self.CreateStatus.unwrap()(code, c_char_ptr) }
     }
@@ -36,19 +51,23 @@ impl OrtApi {
         domain_ptr
     }
 
-    fn add_op_to_domain(&self, domain: *mut OrtCustomOpDomain) -> *mut OrtStatus {
+    fn add_op_to_domain(&self, domain: *mut OrtCustomOpDomain) -> Result<()> {
         let fun_ptr = self.CustomOpDomain_Add.unwrap();
-        let _status = dbg!(unsafe { fun_ptr(domain, Box::leak(Box::new(op_one::create()))) });
-        let status = dbg!(unsafe { fun_ptr(domain, Box::leak(Box::new(op_two::create()))) });
-        status
+        status_to_result(unsafe { fun_ptr(domain, &op_one::OP_ONE) })?;
+        status_to_result(unsafe { fun_ptr(domain, &op_two::OP_TWO) })
     }
 }
 
 impl OrtKernelContext {
-    unsafe fn get_input(&self, api: &OrtApi, index: u64) -> *mut OrtValue {
+    unsafe fn get_input(&self, api: &OrtApi, index: u64) -> Result<*mut OrtValue> {
         let mut value: *const OrtValue = std::ptr::null();
-        let _status = dbg!(api.KernelContext_GetInput.unwrap()(self, index, &mut value));
-        value as *mut _
+        status_to_result(api.KernelContext_GetInput.unwrap()(self, index, &mut value))?;
+	if value == std::ptr::null() {
+	    status_to_result(
+		api.create_error_status(OrtErrorCode_ORT_FAIL, "Failed to get input")
+	    )?;
+	}
+        Ok(value as *mut _)
     }
 
     unsafe fn get_output(
@@ -125,7 +144,7 @@ unsafe extern "C" fn get_execution_provider_type(
 mod op_one {
     use super::*;
 
-    pub(crate) fn create() -> OrtCustomOp {
+    pub const OP_ONE: OrtCustomOp = {
         OrtCustomOp {
             version: 1,
             CreateKernel: Some(create_kernel),
@@ -140,7 +159,7 @@ mod op_one {
             GetInputCharacteristic: Some(get_input_characteristic),
             GetOutputCharacteristic: Some(get_output_characteristic),
         }
-    }
+    };
 
     extern "C" fn get_name(_op: *const OrtCustomOp) -> *const c_char {
         dbg!(str_to_c_char_ptr("CustomOpOne"))
@@ -181,13 +200,13 @@ mod op_one {
         let context = &mut *context;
 
         let (info_x, array_x) = {
-            let value = context.get_input(api, 0);
+            let value = context.get_input(api, 0).unwrap();
             let array = (*value).get_tensor_mutable_data::<f32>(api);
 	    let info = (*value).get_type_and_shape_info(api);
             dbg!(info, array)
         };
         let array_y = {
-            let value = context.get_input(api, 1);
+            let value = context.get_input(api, 1).unwrap();
             let array = (*value).get_tensor_mutable_data::<f32>(api);
             dbg!(array)
         };
@@ -224,7 +243,7 @@ mod op_one {
 mod op_two {
     use super::*;
 
-    pub(crate) fn create() -> OrtCustomOp {
+    pub const OP_TWO: OrtCustomOp = {
         OrtCustomOp {
             version: 1,
             CreateKernel: Some(create_kernel),
@@ -239,7 +258,7 @@ mod op_two {
             GetInputCharacteristic: Some(get_input_characteristic),
             GetOutputCharacteristic: Some(get_output_characteristic),
         }
-    }
+    };
 
     extern "C" fn get_name(_op: *const OrtCustomOp) -> *const c_char {
         dbg!(str_to_c_char_ptr("CustomOpTwo"))
@@ -276,7 +295,7 @@ mod op_two {
         let context = &mut *context;
 
         let (info_x, array_x) = {
-            let value = dbg!(context.get_input(api, 0));
+            let value = dbg!(context.get_input(api, 0)).unwrap();
             let array = (*value).get_tensor_mutable_data::<f32>(api);
 	    let info = (*value).get_type_and_shape_info(api);
             dbg!(info, array)
@@ -330,8 +349,10 @@ pub extern "C" fn RegisterCustomOps(
     // or if an error occurs and it is non null.
     let api = unsafe { *api_base.GetApi.unwrap()(12) };
     let domain_ptr = api.create_custom_op_domain("test.customop", options);
-    dbg!(api.add_op_to_domain(domain_ptr));
-    std::ptr::null_mut()
+    match api.add_op_to_domain(domain_ptr) {
+	Ok(_) => std::ptr::null_mut(),
+	Err(status) => status,
+    }
 }
 
 // #[cfg(test)]
