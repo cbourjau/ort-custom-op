@@ -7,6 +7,7 @@ use std::os::raw::{c_char, c_void};
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 mod api;
+use api::*;
 
 type Result<T> = std::result::Result<T, OrtStatusPtr>;
 
@@ -196,23 +197,25 @@ mod op_one {
         context: *mut OrtKernelContext,
     ) {
         let kernel: &Kernel = &*(op_kernel as *const _);
-        let api = &*kernel.api;
-        let context = &mut *context;
-
-        let (info_x, array_x) = {
-            let value = context.get_input(api, 0).unwrap();
-            let array = (*value).get_tensor_mutable_data::<f32>(api);
-	    let info = (*value).get_type_and_shape_info(api);
-            dbg!(info, array)
+	let api = Api::from_raw(kernel.api);
+	let mut context = KernelContext::from_raw(&api, context);
+        // let api = &*kernel.api;
+        // let context = &mut *context;
+        let (dims_x, array_x) = {
+	    let mut value = context.get_input(0).unwrap();
+	    let array = value.get_tensor_mutable_data::<f32>().unwrap();
+	    let info = value.get_tensor_type_and_shape().unwrap();
+	    let dims = info.get_dimensions().unwrap();
+            dbg!(dims, array)
         };
         let array_y = {
-            let value = context.get_input(api, 1).unwrap();
-            let array = (*value).get_tensor_mutable_data::<f32>(api);
+            let mut value = context.get_input(1).unwrap();
+            let array = value.get_tensor_mutable_data::<f32>().unwrap();
             dbg!(array)
         };
         let array_z = {
-            let value = dbg!(context.get_output(api, 0, &*info_x));
-            let array = (*value).get_tensor_mutable_data::<f32>(api);
+            let mut value = dbg!(context.get_output(0, &dims_x)).unwrap();
+            let array = value.get_tensor_mutable_data::<f32>().unwrap();
             dbg!(array)
         };
 	for ((x, y), z) in array_x.iter().zip(array_y.iter()).zip(array_z.iter_mut()) {
@@ -347,7 +350,7 @@ pub extern "C" fn RegisterCustomOps(
     // returned in library_handle. It can be freed by the caller after
     // all sessions using the passed in session options are destroyed,
     // or if an error occurs and it is non null.
-    let api = unsafe { *api_base.GetApi.unwrap()(12) };
+    let api = unsafe { &*api_base.GetApi.unwrap()(12) };
     let domain_ptr = api.create_custom_op_domain("test.customop", options);
     match api.add_op_to_domain(domain_ptr) {
 	Ok(_) => std::ptr::null_mut(),
