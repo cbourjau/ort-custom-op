@@ -1,14 +1,14 @@
 use crate::*;
 
 #[derive(Debug)]
-pub struct Api<'s> {
-    api: &'s OrtApi,
+pub struct Api {
+    api: &'static OrtApi,
 }
 
 #[derive(Debug)]
 pub struct KernelContext<'s> {
     context: &'s mut OrtKernelContext,
-    api: &'s Api<'s>,
+    api: &'s Api,
 }
 
 #[derive(Debug)]
@@ -20,17 +20,17 @@ pub struct KernelInfo<'s> {
 #[derive(Debug)]
 pub struct Value<'s> {
     value: &'s mut OrtValue,
-    api: &'s Api<'s>,
+    api: &'s Api,
 }
 
 // From Value
 #[derive(Debug)]
 pub struct TensorTypeAndShapeInfo<'s> {
-    api: &'s Api<'s>,
+    api: &'s Api,
     info: &'s mut OrtTensorTypeAndShapeInfo,
 }
 
-impl<'s> std::ops::Deref for Api<'s> {
+impl std::ops::Deref for Api {
     type Target = OrtApi;
 
     fn deref(&self) -> &Self::Target {
@@ -38,14 +38,14 @@ impl<'s> std::ops::Deref for Api<'s> {
     }
 }
 
-impl<'s> Api<'s> {
+impl Api {
     pub fn from_raw(api: *const OrtApi) -> Self {
         unsafe { Self { api: &*api } }
     }
 }
 
 impl<'s> KernelContext<'s> {
-    pub fn from_raw(api: &'s Api<'s>, context: *mut OrtKernelContext) -> Self {
+    pub fn from_raw(api: &'s Api, context: *mut OrtKernelContext) -> Self {
         unsafe {
             Self {
                 api,

@@ -7,7 +7,10 @@ use std::os::raw::{c_char, c_void};
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 mod api;
+mod custom_op;
+
 use api::*;
+use custom_op::{build, CustomOp};
 
 type Result<T> = std::result::Result<T, OrtStatusPtr>;
 
@@ -26,6 +29,21 @@ fn status_to_result(ptr: OrtStatusPtr) -> Result<()> {
     }
 }
 
+pub enum ExecutionProviders {
+    Cpu,
+}
+
+impl ExecutionProviders {
+    /// Execution provider as null terminated string with static
+    /// lifetime.
+    fn into_c_char_ptr(&self) -> *const c_char {
+        let null_term_str = match self {
+            Self::Cpu => b"CPUExecutionProvider\0".as_ptr(),
+        };
+        null_term_str as *const _
+    }
+}
+
 impl OrtApi {
     fn create_error_status(&self, code: u32, msg: &'static str) -> *mut OrtStatus {
         let c_char_ptr = str_to_c_char_ptr(msg);
@@ -40,223 +58,109 @@ impl OrtApi {
         let fun_ptr = self.CreateCustomOpDomain.unwrap();
         let mut domain_ptr: *mut OrtCustomOpDomain = std::ptr::null_mut();
         let c_op_domain = str_to_c_char_ptr(domain);
-	unsafe {
+        unsafe {
             status_to_result(fun_ptr(c_op_domain, &mut domain_ptr))?;
             status_to_result(self.AddCustomOpDomain.unwrap()(options, domain_ptr))?;
-	}
+        }
         Ok(domain_ptr)
     }
 
     fn add_op_to_domain(&self, domain: *mut OrtCustomOpDomain) -> Result<()> {
         let fun_ptr = self.CustomOpDomain_Add.unwrap();
         status_to_result(unsafe { fun_ptr(domain, &op_one::OP_ONE) })?;
-        status_to_result(unsafe { fun_ptr(domain, &op_two::OP_TWO) })
+        status_to_result(unsafe { fun_ptr(domain, &op_one::OP_TWO) })
     }
-}
-
-#[derive(Debug)]
-struct Kernel {
-    _op: *const OrtCustomOp,
-    api: *const OrtApi,
-    _info: *const OrtKernelInfo,
-}
-
-extern "C" fn create_kernel(
-    op: *const OrtCustomOp,
-    api: *const OrtApi,
-    info: *const OrtKernelInfo,
-) -> *mut c_void {
-    let kernel = Kernel {
-        _op: op,
-        api,
-        _info: info,
-    };
-    Box::leak(Box::new(kernel)) as *mut _ as *mut c_void
-}
-
-unsafe extern "C" fn get_execution_provider_type(
-    _op: *const OrtCustomOp,
-) -> *const ::std::os::raw::c_char {
-    CString::new("CPUExecutionProvider").unwrap().into_raw()
-}
-
-unsafe extern "C" fn kernel_destroy(op_kernel: *mut c_void) {
-    Box::from_raw(op_kernel as *mut Kernel);
-    dbg!("kernel_destroy");
 }
 
 mod op_one {
     use super::*;
 
-    pub const OP_ONE: OrtCustomOp = {
-        OrtCustomOp {
-            version: 1,
-            CreateKernel: Some(create_kernel),
-            GetName: Some(get_name),
-            GetExecutionProviderType: Some(get_execution_provider_type),
-            GetInputType: Some(get_input_type),
-            GetInputTypeCount: Some(get_input_type_count),
-            GetOutputType: Some(get_output_type),
-            GetOutputTypeCount: Some(get_output_type_count),
-            KernelCompute: Some(kernel_compute),
-            KernelDestroy: Some(kernel_destroy),
-            GetInputCharacteristic: Some(get_input_characteristic),
-            GetOutputCharacteristic: Some(get_output_characteristic),
+    pub const OP_ONE: OrtCustomOp = build::<KernelOne>();
+    pub const OP_TWO: OrtCustomOp = build::<KernelTwo>();
+
+    #[derive(Debug)]
+    struct KernelOne {
+        api: Api,
+    }
+
+    #[derive(Debug)]
+    struct KernelTwo {
+        api: Api,
+    }
+
+    impl CustomOp for KernelOne {
+        const VERSION: u32 = 1;
+        const NAME: &'static str = "CustomOpOne";
+        const INPUT_TYPES: &'static [u32] = &[
+            ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
+            ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
+        ];
+        const OUTPUT_TYPES: &'static [u32] =
+            &[ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT];
+
+        fn get_api(&self) -> &Api {
+            &self.api
         }
-    };
-
-    extern "C" fn get_name(_op: *const OrtCustomOp) -> *const c_char {
-        str_to_c_char_ptr("CustomOpOne")
-    }
-
-    unsafe extern "C" fn get_input_type(
-        _op: *const OrtCustomOp,
-        _index: size_t,
-    ) -> ONNXTensorElementDataType {
-        dbg!("input_type");
-        ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT
-    }
-
-    unsafe extern "C" fn get_input_type_count(_op: *const OrtCustomOp) -> size_t {
-        dbg!("input_type_count");
-        2
-    }
-
-    unsafe extern "C" fn get_output_type(
-        _op: *const OrtCustomOp,
-        _index: size_t,
-    ) -> ONNXTensorElementDataType {
-        dbg!("output_type");
-        ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT
-    }
-
-    unsafe extern "C" fn get_output_type_count(_op: *const OrtCustomOp) -> size_t {
-        dbg!("output_type_count");
-        1
-    }
-
-    unsafe extern "C" fn kernel_compute(op_kernel: *mut c_void, context: *mut OrtKernelContext) {
-        let kernel: &Kernel = &*(op_kernel as *const _);
-        let api = Api::from_raw(kernel.api);
-        let mut context = KernelContext::from_raw(&api, context);
-
-        let (dims_x, array_x) = {
-            let mut value = context.get_input(0).unwrap();
-            let array = value.get_tensor_data_mut::<f32>().unwrap();
-            let info = value.get_tensor_type_and_shape().unwrap();
-            let dims = info.get_dimensions().unwrap();
-            dbg!((dims, array))
-        };
-        let array_y = {
-            let mut value = context.get_input(1).unwrap();
-            let array = value.get_tensor_data_mut::<f32>().unwrap();
-            dbg!(array)
-        };
-        let array_z = {
-            let mut value = context.get_output(0, &dims_x).unwrap();
-            let array = value.get_tensor_data_mut::<f32>().unwrap();
-            array
-        };
-        for ((x, y), z) in array_x.iter().zip(array_y.iter()).zip(array_z.iter_mut()) {
-            *z = *x + *y;
+        fn kernel_create(_op: &OrtCustomOp, api: Api, _info: &OrtKernelInfo) -> Self {
+            KernelOne { api }
         }
-        dbg!("kernel_compute-one");
-    }
-    unsafe extern "C" fn get_input_characteristic(
-        _op: *const OrtCustomOp,
-        _index: size_t,
-    ) -> OrtCustomOpInputOutputCharacteristic {
-        dbg!("get_input_characteristic");
-        unimplemented!()
-    }
-    unsafe extern "C" fn get_output_characteristic(
-        _op: *const OrtCustomOp,
-        _index: size_t,
-    ) -> OrtCustomOpInputOutputCharacteristic {
-        dbg!("get_out_characteristic");
-        unimplemented!()
-    }
-}
 
-mod op_two {
-    use super::*;
-
-    pub const OP_TWO: OrtCustomOp = {
-        OrtCustomOp {
-            version: 1,
-            CreateKernel: Some(create_kernel),
-            GetName: Some(get_name),
-            GetExecutionProviderType: Some(get_execution_provider_type),
-            GetInputType: Some(get_input_type),
-            GetInputTypeCount: Some(get_input_type_count),
-            GetOutputType: Some(get_output_type),
-            GetOutputTypeCount: Some(get_output_type_count),
-            KernelCompute: Some(kernel_compute),
-            KernelDestroy: Some(kernel_destroy),
-            GetInputCharacteristic: Some(get_input_characteristic),
-            GetOutputCharacteristic: Some(get_output_characteristic),
-        }
-    };
-
-    extern "C" fn get_name(_op: *const OrtCustomOp) -> *const c_char {
-        str_to_c_char_ptr("CustomOpTwo")
-    }
-
-    unsafe extern "C" fn get_input_type(
-        _op: *const OrtCustomOp,
-        _index: size_t,
-    ) -> ONNXTensorElementDataType {
-        ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT
-    }
-
-    unsafe extern "C" fn get_input_type_count(_op: *const OrtCustomOp) -> size_t {
-        1
-    }
-
-    unsafe extern "C" fn get_output_type(
-        _op: *const OrtCustomOp,
-        _index: size_t,
-    ) -> ONNXTensorElementDataType {
-        ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32
-    }
-
-    unsafe extern "C" fn get_output_type_count(_op: *const OrtCustomOp) -> size_t {
-        1
-    }
-    unsafe extern "C" fn kernel_compute(op_kernel: *mut c_void, context: *mut OrtKernelContext) {
-        let kernel: &Kernel = &*(op_kernel as *const _);
-        let api = Api::from_raw(kernel.api);
-        let mut context = KernelContext::from_raw(&api, context);
-
-        let (dims_x, array_x) = {
-            let mut value = context.get_input(0).unwrap();
-            let array = value.get_tensor_data_mut::<f32>().unwrap();
-            let info = value.get_tensor_type_and_shape().unwrap();
-            let dims = info.get_dimensions().unwrap();
-            (dims, array)
-        };
-        let array_z = {
-            let mut value = context.get_output(0, &dims_x).unwrap();
-            let array = value.get_tensor_data_mut::<i32>().unwrap();
-            array
-        };
-        for (x, z) in array_x.into_iter().zip(array_z.iter_mut()) {
-            *z = x.round() as i32
+        fn kernel_compute(&self, context: &mut KernelContext) {
+            let (dims_x, array_x) = {
+                let mut value = context.get_input(0).unwrap();
+                let array = unsafe { value.get_tensor_data_mut::<f32>().unwrap() };
+                let info = value.get_tensor_type_and_shape().unwrap();
+                let dims = info.get_dimensions().unwrap();
+                dbg!((dims, array))
+            };
+            let array_y = {
+                let mut value = context.get_input(1).unwrap();
+                let array = unsafe { value.get_tensor_data_mut::<f32>().unwrap() };
+                dbg!(array)
+            };
+            let array_z = {
+                let mut value = context.get_output(0, &dims_x).unwrap();
+                let array = unsafe { value.get_tensor_data_mut::<f32>().unwrap() };
+                array
+            };
+            for ((x, y), z) in array_x.iter().zip(array_y.iter()).zip(array_z.iter_mut()) {
+                *z = *x + *y;
+            }
         }
     }
-    unsafe extern "C" fn get_input_characteristic(
-        _op: *const OrtCustomOp,
-        _index: size_t,
-    ) -> OrtCustomOpInputOutputCharacteristic {
-        dbg!("get_input_characteristic");
-        unimplemented!()
-    }
-    unsafe extern "C" fn get_output_characteristic(
-        _op: *const OrtCustomOp,
-        _index: size_t,
-    ) -> OrtCustomOpInputOutputCharacteristic {
-        dbg!("get_out_characteristic");
-        unimplemented!()
+
+    impl CustomOp for KernelTwo {
+        const VERSION: u32 = 1;
+        const NAME: &'static str = "CustomOpTwo";
+        const INPUT_TYPES: &'static [u32] =
+            &[ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT];
+        const OUTPUT_TYPES: &'static [u32] =
+            &[ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32];
+
+        fn get_api(&self) -> &Api {
+            &self.api
+        }
+        fn kernel_create(_op: &OrtCustomOp, api: Api, _info: &OrtKernelInfo) -> Self {
+            Self { api }
+        }
+
+        fn kernel_compute(&self, context: &mut KernelContext) {
+            let (dims_x, array_x) = {
+                let mut value = context.get_input(0).unwrap();
+                let array = unsafe { value.get_tensor_data_mut::<f32>().unwrap() };
+                let info = value.get_tensor_type_and_shape().unwrap();
+                let dims = info.get_dimensions().unwrap();
+                (dims, array)
+            };
+            let array_z = {
+                let mut value = context.get_output(0, &dims_x).unwrap();
+                let array = unsafe { value.get_tensor_data_mut::<i32>().unwrap() };
+                array
+            };
+            for (x, z) in array_x.into_iter().zip(array_z.iter_mut()) {
+                *z = x.round() as i32
+            }
+        }
     }
 }
 
@@ -279,10 +183,9 @@ pub extern "C" fn RegisterCustomOps(
     // all sessions using the passed in session options are destroyed,
     // or if an error occurs and it is non null.
     let api = unsafe { &*api_base.GetApi.unwrap()(12) };
-    let status = api.create_custom_op_domain("test.customop", options)
-	.and_then(|domain_ptr| {
-	    api.add_op_to_domain(domain_ptr)
-	});
+    let status = api
+        .create_custom_op_domain("test.customop", options)
+        .and_then(|domain_ptr| api.add_op_to_domain(domain_ptr));
     match status {
         Ok(_) => std::ptr::null_mut(),
         Err(status) => status,
