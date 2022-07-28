@@ -2,7 +2,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 use std::ffi::CString;
-use std::os::raw::{c_char, c_void};
+use std::os::raw::c_char;
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
@@ -22,7 +22,7 @@ fn str_to_c_char_ptr(s: &str) -> *const c_char {
 ///
 ///A null pointer is mapped to the `Ok(())`.
 fn status_to_result(ptr: OrtStatusPtr) -> Result<()> {
-    if ptr == std::ptr::null_mut() {
+    if ptr.is_null() {
         Ok(())
     } else {
         Err(ptr)
@@ -36,39 +36,11 @@ pub enum ExecutionProviders {
 impl ExecutionProviders {
     /// Execution provider as null terminated string with static
     /// lifetime.
-    fn into_c_char_ptr(&self) -> *const c_char {
+    fn as_c_char_ptr(&self) -> *const c_char {
         let null_term_str = match self {
             Self::Cpu => b"CPUExecutionProvider\0".as_ptr(),
         };
         null_term_str as *const _
-    }
-}
-
-impl OrtApi {
-    fn create_error_status(&self, code: u32, msg: &'static str) -> *mut OrtStatus {
-        let c_char_ptr = str_to_c_char_ptr(msg);
-        unsafe { self.CreateStatus.unwrap()(code, c_char_ptr) }
-    }
-
-    fn create_custom_op_domain(
-        &self,
-        domain: &str,
-        options: &mut OrtSessionOptions,
-    ) -> Result<*mut OrtCustomOpDomain> {
-        let fun_ptr = self.CreateCustomOpDomain.unwrap();
-        let mut domain_ptr: *mut OrtCustomOpDomain = std::ptr::null_mut();
-        let c_op_domain = str_to_c_char_ptr(domain);
-        unsafe {
-            status_to_result(fun_ptr(c_op_domain, &mut domain_ptr))?;
-            status_to_result(self.AddCustomOpDomain.unwrap()(options, domain_ptr))?;
-        }
-        Ok(domain_ptr)
-    }
-
-    fn add_op_to_domain(&self, domain: *mut OrtCustomOpDomain) -> Result<()> {
-        let fun_ptr = self.CustomOpDomain_Add.unwrap();
-        status_to_result(unsafe { fun_ptr(domain, &op_one::OP_ONE) })?;
-        status_to_result(unsafe { fun_ptr(domain, &op_one::OP_TWO) })
     }
 }
 
@@ -157,7 +129,7 @@ mod op_one {
                 let array = unsafe { value.get_tensor_data_mut::<i32>().unwrap() };
                 array
             };
-            for (x, z) in array_x.into_iter().zip(array_z.iter_mut()) {
+            for (x, z) in array_x.iter_mut().zip(array_z.iter_mut()) {
                 *z = x.round() as i32
             }
         }
@@ -182,10 +154,13 @@ pub extern "C" fn RegisterCustomOps(
     // returned in library_handle. It can be freed by the caller after
     // all sessions using the passed in session options are destroyed,
     // or if an error occurs and it is non null.
-    let api = unsafe { &*api_base.GetApi.unwrap()(12) };
+    let api = Api::from_raw(unsafe { &*api_base.GetApi.unwrap()(12) });
     let status = api
         .create_custom_op_domain("test.customop", options)
-        .and_then(|domain_ptr| api.add_op_to_domain(domain_ptr));
+        .and_then(|mut domain| {
+            domain.add_op_to_domain(&op_one::OP_ONE)?;
+            domain.add_op_to_domain(&op_one::OP_TWO)
+        });
     match status {
         Ok(_) => std::ptr::null_mut(),
         Err(status) => status,

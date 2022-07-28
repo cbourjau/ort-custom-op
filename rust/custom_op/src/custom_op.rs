@@ -27,7 +27,7 @@ pub const fn build<T: CustomOp>() -> OrtCustomOp {
     extern "C" fn get_execution_provider_type<T: CustomOp>(
         _op: *const OrtCustomOp,
     ) -> *const c_char {
-        T::EXECUTION_PROVIDER.into_c_char_ptr()
+        T::EXECUTION_PROVIDER.as_c_char_ptr()
     }
 
     extern "C" fn get_input_type<T: CustomOp>(
@@ -56,7 +56,7 @@ pub const fn build<T: CustomOp>() -> OrtCustomOp {
         api: *const OrtApi,
         info: *const OrtKernelInfo,
     ) -> *mut c_void {
-        let api = Api::from_raw(api);
+        let api = Api::from_raw(&*api);
         let kernel = T::kernel_create(&*op, api, &*info);
         Box::leak(Box::new(kernel)) as *mut _ as *mut c_void
     }
@@ -68,7 +68,7 @@ pub const fn build<T: CustomOp>() -> OrtCustomOp {
         let kernel: &mut T = &mut *(op_kernel as *mut _);
 
         let api = kernel.get_api();
-        let mut context = KernelContext::from_raw(&api, context);
+        let mut context = KernelContext::from_raw(api, context);
 
         kernel.kernel_compute(&mut context);
     }

@@ -30,17 +30,47 @@ pub struct TensorTypeAndShapeInfo<'s> {
     info: &'s mut OrtTensorTypeAndShapeInfo,
 }
 
+pub struct CustomOpDomain<'s> {
+    api: &'s Api,
+    custom_op_domain: &'s mut OrtCustomOpDomain,
+}
+
 impl std::ops::Deref for Api {
     type Target = OrtApi;
 
     fn deref(&self) -> &Self::Target {
-        &self.api
+        self.api
     }
 }
 
 impl Api {
-    pub fn from_raw(api: *const OrtApi) -> Self {
-        unsafe { Self { api: &*api } }
+    pub fn from_raw(api: &'static OrtApi) -> Self {
+        Self { api }
+    }
+
+    pub fn create_custom_op_domain(
+        &self,
+        domain: &str,
+        options: &mut OrtSessionOptions,
+    ) -> Result<CustomOpDomain> {
+        let fun_ptr = self.CreateCustomOpDomain.unwrap();
+        let mut domain_ptr: *mut OrtCustomOpDomain = std::ptr::null_mut();
+
+        // Leak!
+        let c_op_domain = str_to_c_char_ptr(domain);
+        unsafe {
+            status_to_result(fun_ptr(c_op_domain, &mut domain_ptr))?;
+            status_to_result(self.AddCustomOpDomain.unwrap()(options, domain_ptr))?;
+            Ok(CustomOpDomain {
+                api: self,
+                custom_op_domain: &mut *domain_ptr,
+            })
+        }
+    }
+
+    fn create_error_status(&self, code: u32, msg: &str) -> *mut OrtStatus {
+        let c_char_ptr = str_to_c_char_ptr(msg);
+        unsafe { self.CreateStatus.unwrap()(code, c_char_ptr) }
     }
 }
 
@@ -192,5 +222,13 @@ impl<'s> Drop for TensorTypeAndShapeInfo<'s> {
 impl<'s> Drop for Value<'s> {
     fn drop(&mut self) {
         // This is unused in the official example and crashes if used...
+    }
+}
+
+impl<'s> CustomOpDomain<'s> {
+    pub fn add_op_to_domain(&mut self, op: &'static OrtCustomOp) -> Result<()> {
+        let fun_ptr = self.api.CustomOpDomain_Add.unwrap();
+        status_to_result(unsafe { fun_ptr(self.custom_op_domain, op) })?;
+        Ok(())
     }
 }
