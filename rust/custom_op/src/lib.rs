@@ -3,6 +3,7 @@
 #![allow(non_snake_case)]
 use std::ffi::CString;
 use std::os::raw::c_char;
+use std::collections::HashMap;
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
@@ -36,11 +37,11 @@ pub enum ExecutionProviders {
 impl ExecutionProviders {
     /// Execution provider as null terminated string with static
     /// lifetime.
-    fn as_c_char_ptr(&self) -> *const c_char {
+    const fn as_c_char_ptr(&self) -> &'static c_char {
         let null_term_str = match self {
             Self::Cpu => b"CPUExecutionProvider\0".as_ptr(),
         };
-        null_term_str as *const _
+        unsafe { &*(null_term_str as *const _) }
     }
 }
 
@@ -77,21 +78,22 @@ mod op_one {
             KernelOne { api }
         }
 
-        fn kernel_compute(&self, context: &mut KernelContext) {
+        fn kernel_compute(&self, context: & KernelContext, outputs: HashMap<&str, SafeValue>) {
             let (dims_x, array_x) = {
-                let mut value = context.get_input(0).unwrap();
-                let array = unsafe { value.get_tensor_data_mut::<f32>().unwrap() };
+                let value = context.get_input(0).unwrap();
                 let info = value.get_tensor_type_and_shape().unwrap();
+                let array = unsafe { value.get_tensor_data_mut::<f32>().unwrap() };
                 let dims = info.get_dimensions().unwrap();
                 dbg!((dims, array))
             };
             let array_y = {
-                let mut value = context.get_input(1).unwrap();
+                let value = context.get_input(1).unwrap();
                 let array = unsafe { value.get_tensor_data_mut::<f32>().unwrap() };
                 dbg!(array)
             };
             let array_z = {
-                let mut value = context.get_output(0, &dims_x).unwrap();
+		outputs.get("42");
+                let value = context.get_output(0, &dims_x).unwrap();
                 let array = unsafe { value.get_tensor_data_mut::<f32>().unwrap() };
                 array
             };
@@ -116,16 +118,16 @@ mod op_one {
             Self { api }
         }
 
-        fn kernel_compute(&self, context: &mut KernelContext) {
+        fn kernel_compute(&self, context: & KernelContext, outputs: HashMap<&str, SafeValue>) {
             let (dims_x, array_x) = {
-                let mut value = context.get_input(0).unwrap();
-                let array = unsafe { value.get_tensor_data_mut::<f32>().unwrap() };
+                let value = context.get_input(0).unwrap();
                 let info = value.get_tensor_type_and_shape().unwrap();
+                let array = unsafe { value.get_tensor_data_mut::<f32>().unwrap() };
                 let dims = info.get_dimensions().unwrap();
                 (dims, array)
             };
             let array_z = {
-                let mut value = context.get_output(0, &dims_x).unwrap();
+                let value = context.get_output(0, &dims_x).unwrap();
                 let array = unsafe { value.get_tensor_data_mut::<i32>().unwrap() };
                 array
             };
@@ -141,19 +143,6 @@ pub extern "C" fn RegisterCustomOps(
     options: &mut OrtSessionOptions,
     api_base: &mut OrtApiBase,
 ) -> *mut OrtStatus {
-    // Docs from upstream
-    // \brief Register custom ops from a shared library
-
-    // 	Loads a shared library (dll on windows, so on linux, etc)
-    //  named 'library_path' and looks for this entry point:
-
-    //     OrtStatus* RegisterCustomOps(OrtSessionOptions * options, const OrtApiBase* api);
-
-    // It then passes in the provided session options to this function
-    // along with the api base.  The handle to the loaded library is
-    // returned in library_handle. It can be freed by the caller after
-    // all sessions using the passed in session options are destroyed,
-    // or if an error occurs and it is non null.
     let api = Api::from_raw(unsafe { &*api_base.GetApi.unwrap()(12) });
     let status = api
         .create_custom_op_domain("test.customop", options)

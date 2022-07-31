@@ -23,6 +23,12 @@ pub struct Value<'s> {
     api: &'s Api,
 }
 
+pub struct SafeValue<'s> {
+    api: &'s Api,
+    context: &'s mut OrtKernelContext,
+    index: u64,
+}
+
 // From Value
 #[derive(Debug)]
 pub struct TensorTypeAndShapeInfo<'s> {
@@ -102,6 +108,14 @@ impl<'s> KernelContext<'s> {
         })
     }
 
+    pub fn get_safe_output(&mut self, index: u64) -> SafeValue {
+	SafeValue {
+	    api: self.api,
+	    context: self.context,
+	    index
+	}
+    }
+
     pub fn get_output(&mut self, index: u64, dimensions: &[i64]) -> Result<Value<'s>> {
         let mut value: *mut OrtValue = std::ptr::null_mut();
         unsafe {
@@ -167,7 +181,9 @@ impl<'s> Value<'s> {
     /// Get mutable tensor data associated to this `Value`.
     ///
     /// Calling this function repeatedly hands out aliasing mutable slices!
-    pub unsafe fn get_tensor_data_mut<T>(&mut self) -> Result<&'s mut [T]> {
+    pub unsafe fn get_tensor_data_mut<T>(self) -> Result<&'s mut [T]> {
+	// This needs a refactor! The shape should be passed here,
+	// rather than when creating the `Value`.
         let element_count = self
             .get_tensor_type_and_shape()?
             .get_tensor_shape_element_count()?;
@@ -230,5 +246,39 @@ impl<'s> CustomOpDomain<'s> {
         let fun_ptr = self.api.CustomOpDomain_Add.unwrap();
         status_to_result(unsafe { fun_ptr(self.custom_op_domain, op) })?;
         Ok(())
+    }
+}
+
+impl<'s> SafeValue<'s> {
+    pub fn get_output_mut<T>(self, shape: &[i64]) -> Result<&'s[T]> {
+
+        let value = unsafe {
+            let mut value: *mut OrtValue = std::ptr::null_mut();	    
+            status_to_result(self.api.KernelContext_GetOutput.unwrap()(
+                self.context,
+                self.index,
+                shape.as_ptr(),
+                shape.len() as u64,
+                &mut value,
+            ))?;
+            Value {
+                value: &mut *value,
+                api: self.api,
+            }
+        };	
+	// This needs a refactor! The shape should be passed here,
+	// rather than when creating the `Value`.
+        let element_count = value
+            .get_tensor_type_and_shape()?
+            .get_tensor_shape_element_count()?;
+
+        let mut ptr: *mut _ = std::ptr::null_mut();
+        unsafe{
+	    self.api.GetTensorMutableData.unwrap()(value.value, &mut ptr);
+            Ok(std::slice::from_raw_parts_mut(
+		ptr as *mut T,
+		element_count as usize,
+            ))
+	}
     }
 }
