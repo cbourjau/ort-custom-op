@@ -10,7 +10,7 @@ ROOT = Path(__file__).parent
 
 def test_rust_dylib():
     onnxrt.set_default_logger_severity(0)
-    shared_library = str(ROOT / "rust/custom_op/target/debug/libcustom_op.dylib")
+    shared_library = str(ROOT / "target/debug/libcustom_op.dylib")
     if not os.path.exists(shared_library):
         raise FileNotFoundError("Unable to find '{0}'".format(shared_library))
 
