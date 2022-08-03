@@ -145,3 +145,19 @@ pub extern "C" fn RegisterCustomOps(
         Err(status) => status,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::process::Command;
+
+    /// Run pytest in a subprocess.
+    #[test]
+    fn test_with_onnxruntime() {
+        let output = Command::new("pytest")
+            .arg("-s")
+            .output()
+            .expect("pytest failed");
+        dbg!(String::from_utf8(output.stdout).unwrap());
+        println!("{}", String::from_utf8(output.stderr).unwrap());
+    }
+}
