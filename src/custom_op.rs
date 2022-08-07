@@ -1,7 +1,9 @@
 use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
 
-use crate::api::OutputValue;
+use ndarray;
+
+use crate::api::{ElementType, OutputValue};
 use crate::{
     size_t, Api, ExecutionProviders, KernelContext, ONNXTensorElementDataType, OrtApi, OrtCustomOp,
     OrtCustomOpInputOutputCharacteristic, OrtKernelContext, OrtKernelInfo,
@@ -10,8 +12,8 @@ use crate::{
 pub trait CustomOp {
     const VERSION: u32;
     const NAME: &'static str;
-    const INPUT_TYPES: &'static [u32];
-    const OUTPUT_TYPES: &'static [u32];
+    const INPUT_TYPES: &'static [ElementType];
+    const OUTPUT_TYPES: &'static [ElementType];
 
     const EXECUTION_PROVIDER: ExecutionProviders = ExecutionProviders::Cpu;
     // fn get_input_type(op: &OrtCustomOp, index: usize);
@@ -35,7 +37,7 @@ pub const fn build<T: CustomOp>() -> OrtCustomOp {
         _op: *const OrtCustomOp,
         index: size_t,
     ) -> ONNXTensorElementDataType {
-        T::INPUT_TYPES[index as usize]
+        T::INPUT_TYPES[index as usize].to_ort_encoding()
     }
 
     extern "C" fn get_input_type_count<T: CustomOp>(_op: *const OrtCustomOp) -> size_t {
@@ -46,7 +48,7 @@ pub const fn build<T: CustomOp>() -> OrtCustomOp {
         _op: *const OrtCustomOp,
         index: size_t,
     ) -> ONNXTensorElementDataType {
-        T::OUTPUT_TYPES[index as usize]
+        T::OUTPUT_TYPES[index as usize].to_ort_encoding()
     }
 
     extern "C" fn get_output_type_count<T: CustomOp>(_op: *const OrtCustomOp) -> size_t {

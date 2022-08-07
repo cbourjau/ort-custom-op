@@ -1,3 +1,11 @@
+use crate::{
+    ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_DOUBLE,
+    ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
+    ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32,
+    ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64,
+    ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_STRING,
+};
+
 use crate::*;
 use ndarray::{ArrayView, ArrayViewMut, IxDyn};
 
@@ -41,6 +49,14 @@ pub struct TensorTypeAndShapeInfo<'s> {
 pub struct CustomOpDomain<'s> {
     api: &'s Api,
     custom_op_domain: &'s mut OrtCustomOpDomain,
+}
+
+pub enum ElementType {
+    F32,
+    F64,
+    I32,
+    I64,
+    String,
 }
 
 impl std::ops::Deref for Api {
@@ -279,5 +295,17 @@ impl<'s> OutputValue<'s> {
 
         let a = ArrayViewMut::from(data).into_shape(shape).unwrap();
         Ok(a)
+    }
+}
+
+impl ElementType {
+    pub fn to_ort_encoding(&self) -> u32 {
+        match self {
+            Self::F32 => ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
+            Self::F64 => ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_DOUBLE,
+            Self::I32 => ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32,
+            Self::I64 => ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64,
+            Self::String => ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_STRING,
+        }
     }
 }
