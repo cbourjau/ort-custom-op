@@ -11,3 +11,6 @@ crate-type = ["cdylib"]
 
 [build-dependencies]
 bindgen = "0.60.1"
+
+[dependencies]
+ndarray = "0.15.6"

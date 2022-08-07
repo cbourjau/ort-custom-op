@@ -1,7 +1,7 @@
 use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
 
-use crate::api::SafeValue;
+use crate::api::OutputValue;
 use crate::{
     size_t, Api, ExecutionProviders, KernelContext, ONNXTensorElementDataType, OrtApi, OrtCustomOp,
     OrtCustomOpInputOutputCharacteristic, OrtKernelContext, OrtKernelInfo,
@@ -16,7 +16,7 @@ pub trait CustomOp {
     const EXECUTION_PROVIDER: ExecutionProviders = ExecutionProviders::Cpu;
     // fn get_input_type(op: &OrtCustomOp, index: usize);
     fn kernel_create(op: &OrtCustomOp, api: Api, info: &OrtKernelInfo) -> Self;
-    fn kernel_compute(&self, context: &KernelContext, outputs: Vec<SafeValue>);
+    fn kernel_compute(&self, context: &KernelContext, outputs: &mut [OutputValue]);
     fn get_api(&self) -> &Api;
 }
 
@@ -74,11 +74,14 @@ pub const fn build<T: CustomOp>() -> OrtCustomOp {
         // the same output memory mutably, so this is not safe!
         let context_output = KernelContext::from_raw(api, context);
         let n_outputs = context_output.get_output_count().unwrap();
-        let mut outputs = vec![];
-        for n in 0..n_outputs {
-            outputs.push(KernelContext::from_raw(api, context).get_safe_output(n))
-        }
-        kernel.kernel_compute(&context_output, outputs);
+        let mut outputs = {
+            let mut outputs = vec![];
+            for n in 0..n_outputs {
+                outputs.push(KernelContext::from_raw(api, context).get_safe_output(n))
+            }
+            outputs
+        };
+        kernel.kernel_compute(&context_output, &mut outputs);
     }
 
     unsafe extern "C" fn kernel_destroy<T: CustomOp>(op_kernel: *mut c_void) {

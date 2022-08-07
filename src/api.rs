@@ -1,4 +1,5 @@
 use crate::*;
+use ndarray::{ArrayView, ArrayViewMut, IxDyn};
 
 #[derive(Debug)]
 pub struct Api {
@@ -24,7 +25,14 @@ pub struct Value<'s> {
 }
 
 #[derive(Debug)]
-pub struct SafeValue<'s> {
+pub struct OutputValue<'s> {
+    api: Api,
+    context: &'s mut OrtKernelContext,
+    index: u64,
+}
+
+#[derive(Debug)]
+pub struct InputValue<'s> {
     api: Api,
     context: &'s mut OrtKernelContext,
     index: u64,
@@ -91,7 +99,7 @@ impl<'s> KernelContext<'s> {
         }
     }
 
-    pub fn get_input(&self, index: u64) -> Result<Value<'s>> {
+    pub fn get_input<T>(&self, index: u64) -> Result<ArrayView<T, IxDyn>> {
         let mut value: *const OrtValue = std::ptr::null();
         status_to_result(unsafe {
             self.api.KernelContext_GetInput.unwrap()(self.context, index, &mut value)
@@ -103,14 +111,40 @@ impl<'s> KernelContext<'s> {
             )?;
         }
         let value = unsafe { &mut *(value as *mut OrtValue) };
-        Ok(Value {
+        let value = Value {
             value,
             api: self.api,
-        })
+        };
+
+        // Get the data
+        let data = {
+            let element_count = value
+                .get_tensor_type_and_shape()?
+                .get_tensor_shape_element_count()?;
+
+            let mut ptr: *mut _ = std::ptr::null_mut();
+            unsafe {
+                self.api.GetTensorMutableData.unwrap()(value.value, &mut ptr);
+                std::slice::from_raw_parts(ptr as *mut T, element_count as usize)
+            }
+        };
+
+        // Figure out the correct shape
+        let dims: Vec<_> = {
+            let info = value.get_tensor_type_and_shape().unwrap();
+            info.get_dimensions()
+                .unwrap()
+                .into_iter()
+                .map(|el| el as usize)
+                .collect()
+        };
+
+        let a = ArrayView::from(data).into_shape(dims).unwrap();
+        Ok(a)
     }
 
-    pub unsafe fn get_safe_output<'inner>(self, index: u64) -> SafeValue<'s> {
-        SafeValue::<'s> {
+    pub unsafe fn get_safe_output<'inner>(self, index: u64) -> OutputValue<'s> {
+        OutputValue::<'s> {
             api: Api::from_raw(self.api.api),
             context: self.context,
             index,
@@ -236,10 +270,49 @@ impl<'s> CustomOpDomain<'s> {
     }
 }
 
-impl<'s> SafeValue<'s> {
-    pub fn get_output_mut<T>(&mut self, shape: &[i64]) -> Result<&'s mut [T]> {
+impl<'s> OutputValue<'s> {
+    pub fn get_input<T>(&self) -> Result<&[T]> {
+        let value = {
+            let mut value: *const OrtValue = std::ptr::null();
+            unsafe {
+                status_to_result(self.api.KernelContext_GetInput.unwrap()(
+                    self.context,
+                    self.index,
+                    &mut value,
+                ))?
+            };
+            if value.is_null() {
+                return Err(self.api.create_error_status(0, "No value found"));
+            }
+            // The only available api borrows the data
+            // mutable. I.e. we change const to mut here!
+            let value = unsafe { &mut *(value as *mut OrtValue) };
+            Value {
+                value: &mut *value,
+                api: &self.api,
+            }
+        };
+        // This needs a refactor! The shape should be passed here,
+        // rather than when creating the `Value`.
+        let element_count = value
+            .get_tensor_type_and_shape()?
+            .get_tensor_shape_element_count()?;
+
+        let mut ptr: *mut _ = std::ptr::null_mut();
+        unsafe {
+            self.api.GetTensorMutableData.unwrap()(value.value, &mut ptr);
+            Ok(std::slice::from_raw_parts(
+                ptr as *mut T,
+                element_count as usize,
+            ))
+        }
+    }
+}
+impl<'s> OutputValue<'s> {
+    pub fn get_output_mut<T>(&mut self, shape: &[usize]) -> Result<ArrayViewMut<T, IxDyn>> {
         let value = unsafe {
             let mut value: *mut OrtValue = std::ptr::null_mut();
+            let shape: Vec<_> = shape.iter().map(|el| *el as i64).collect();
             status_to_result(self.api.KernelContext_GetOutput.unwrap()(
                 self.context,
                 self.index,
@@ -262,12 +335,12 @@ impl<'s> SafeValue<'s> {
             .get_tensor_shape_element_count()?;
 
         let mut ptr: *mut _ = std::ptr::null_mut();
-        unsafe {
+        let data = unsafe {
             self.api.GetTensorMutableData.unwrap()(value.value, &mut ptr);
-            Ok(std::slice::from_raw_parts_mut(
-                ptr as *mut T,
-                element_count as usize,
-            ))
-        }
+            std::slice::from_raw_parts_mut(ptr as *mut T, element_count as usize)
+        };
+
+        let a = ArrayViewMut::from(data).into_shape(shape).unwrap();
+        Ok(a)
     }
 }

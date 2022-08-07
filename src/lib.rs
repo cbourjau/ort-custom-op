@@ -77,23 +77,14 @@ mod op_one {
             KernelOne { api }
         }
 
-        fn kernel_compute(&self, context: &KernelContext, mut outputs: Vec<SafeValue>) {
-            let (dims_x, array_x) = {
-                let value = context.get_input(0).unwrap();
-                let info = value.get_tensor_type_and_shape().unwrap();
-                let array = unsafe { value.get_tensor_data_mut::<f32>().unwrap() };
-                let dims = info.get_dimensions().unwrap();
-                dbg!((dims, array))
-            };
-            let array_y = {
-                let value = context.get_input(1).unwrap();
-                let array = unsafe { value.get_tensor_data_mut::<f32>().unwrap() };
-                dbg!(array)
-            };
-            let array_z = { outputs[0].get_output_mut::<f32>(&dims_x).unwrap() };
-            for ((x, y), z) in array_x.iter().zip(array_y.iter()).zip(array_z.iter_mut()) {
-                *z = *x + *y;
-            }
+        fn kernel_compute(&self, context: &KernelContext, outputs: &mut [OutputValue]) {
+            let array_x = context.get_input::<f32>(0).unwrap();
+            let array_y = context.get_input::<f32>(1).unwrap();
+            let dims_x = array_x.shape();
+
+            let mut array_z = { outputs[0].get_output_mut::<f32>(&dims_x).unwrap() };
+
+            array_z.assign(&(&array_x + &array_y));
         }
     }
 
@@ -112,18 +103,11 @@ mod op_one {
             Self { api }
         }
 
-        fn kernel_compute(&self, context: &KernelContext, mut outputs: Vec<SafeValue>) {
-            let (dims_x, array_x) = {
-                let value = context.get_input(0).unwrap();
-                let info = value.get_tensor_type_and_shape().unwrap();
-                let array = unsafe { value.get_tensor_data_mut::<f32>().unwrap() };
-                let dims = info.get_dimensions().unwrap();
-                (dims, array)
-            };
-            let array_z = { outputs[0].get_output_mut::<i32>(&dims_x).unwrap() };
-            for (x, z) in array_x.iter_mut().zip(array_z.iter_mut()) {
-                *z = x.round() as i32
-            }
+        fn kernel_compute(&self, context: &KernelContext, outputs: &mut [OutputValue]) {
+            let array_x = context.get_input::<f32>(0).unwrap();
+            let dims_x = array_x.shape();
+            let mut array_z = { outputs[0].get_output_mut::<i32>(&dims_x).unwrap() };
+            array_z.assign(&array_x.mapv(|el| el.round() as i32));
         }
     }
 }
@@ -143,21 +127,5 @@ pub extern "C" fn RegisterCustomOps(
     match status {
         Ok(_) => std::ptr::null_mut(),
         Err(status) => status,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::process::Command;
-
-    /// Run pytest in a subprocess.
-    #[test]
-    fn test_with_onnxruntime() {
-        let output = Command::new("pytest")
-            .arg("-s")
-            .output()
-            .expect("pytest failed");
-        dbg!(String::from_utf8(output.stdout).unwrap());
-        println!("{}", String::from_utf8(output.stderr).unwrap());
     }
 }
