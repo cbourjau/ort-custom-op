@@ -31,13 +31,6 @@ pub struct OutputValue<'s> {
     index: u64,
 }
 
-#[derive(Debug)]
-pub struct InputValue<'s> {
-    api: Api,
-    context: &'s mut OrtKernelContext,
-    index: u64,
-}
-
 // From Value
 #[derive(Debug)]
 pub struct TensorTypeAndShapeInfo<'s> {
@@ -199,24 +192,6 @@ impl<'s> Value<'s> {
         unimplemented!()
     }
 
-    /// Get mutable tensor data associated to this `Value`.
-    ///
-    /// Calling this function repeatedly hands out aliasing mutable slices!
-    pub unsafe fn get_tensor_data_mut<T>(self) -> Result<&'s mut [T]> {
-        // This needs a refactor! The shape should be passed here,
-        // rather than when creating the `Value`.
-        let element_count = self
-            .get_tensor_type_and_shape()?
-            .get_tensor_shape_element_count()?;
-
-        let mut ptr: *mut _ = std::ptr::null_mut();
-        self.api.GetTensorMutableData.unwrap()(self.value, &mut ptr);
-        Ok(std::slice::from_raw_parts_mut(
-            ptr as *mut T,
-            element_count as usize,
-        ))
-    }
-
     // /// Not clear what that is...
     // fn get_type_info(&self) -> Result<TypeInfo> {
     // 	unimplemented!()
@@ -270,44 +245,6 @@ impl<'s> CustomOpDomain<'s> {
     }
 }
 
-impl<'s> OutputValue<'s> {
-    pub fn get_input<T>(&self) -> Result<&[T]> {
-        let value = {
-            let mut value: *const OrtValue = std::ptr::null();
-            unsafe {
-                status_to_result(self.api.KernelContext_GetInput.unwrap()(
-                    self.context,
-                    self.index,
-                    &mut value,
-                ))?
-            };
-            if value.is_null() {
-                return Err(self.api.create_error_status(0, "No value found"));
-            }
-            // The only available api borrows the data
-            // mutable. I.e. we change const to mut here!
-            let value = unsafe { &mut *(value as *mut OrtValue) };
-            Value {
-                value: &mut *value,
-                api: &self.api,
-            }
-        };
-        // This needs a refactor! The shape should be passed here,
-        // rather than when creating the `Value`.
-        let element_count = value
-            .get_tensor_type_and_shape()?
-            .get_tensor_shape_element_count()?;
-
-        let mut ptr: *mut _ = std::ptr::null_mut();
-        unsafe {
-            self.api.GetTensorMutableData.unwrap()(value.value, &mut ptr);
-            Ok(std::slice::from_raw_parts(
-                ptr as *mut T,
-                element_count as usize,
-            ))
-        }
-    }
-}
 impl<'s> OutputValue<'s> {
     pub fn get_output_mut<T>(&mut self, shape: &[usize]) -> Result<ArrayViewMut<T, IxDyn>> {
         let value = unsafe {
