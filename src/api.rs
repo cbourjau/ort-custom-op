@@ -3,7 +3,7 @@ use crate::{
     ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
     ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32,
     ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64,
-    ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_STRING,
+    ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_STRING, OrtApiBase,
 };
 
 use crate::*;
@@ -47,7 +47,7 @@ pub struct TensorTypeAndShapeInfo<'s> {
 }
 
 pub struct CustomOpDomain<'s> {
-    api: &'s Api,
+    api: &'s OrtApi,
     custom_op_domain: &'s mut OrtCustomOpDomain,
 }
 
@@ -57,6 +57,11 @@ pub enum ElementType {
     I32,
     I64,
     String,
+}
+
+pub struct SessionOptions<'s> {
+    api: &'static OrtApi,
+    session_options: &'s mut OrtSessionOptions,
 }
 
 impl std::ops::Deref for Api {
@@ -70,26 +75,6 @@ impl std::ops::Deref for Api {
 impl Api {
     pub fn from_raw(api: &'static OrtApi) -> Self {
         Self { api }
-    }
-
-    pub fn create_custom_op_domain(
-        &self,
-        domain: &str,
-        options: &mut OrtSessionOptions,
-    ) -> Result<CustomOpDomain> {
-        let fun_ptr = self.CreateCustomOpDomain.unwrap();
-        let mut domain_ptr: *mut OrtCustomOpDomain = std::ptr::null_mut();
-
-        // Leak!
-        let c_op_domain = str_to_c_char_ptr(domain);
-        unsafe {
-            status_to_result(fun_ptr(c_op_domain, &mut domain_ptr))?;
-            status_to_result(self.AddCustomOpDomain.unwrap()(options, domain_ptr))?;
-            Ok(CustomOpDomain {
-                api: self,
-                custom_op_domain: &mut *domain_ptr,
-            })
-        }
     }
 
     fn create_error_status(&self, code: u32, msg: &str) -> *mut OrtStatus {
@@ -108,7 +93,7 @@ impl<'s> KernelContext<'s> {
         }
     }
 
-    pub fn get_input<T>(&self, index: u64) -> Result<ArrayView<T, IxDyn>> {
+    pub fn get_input_value(&self, index: u64) -> Result<Value<'s>> {
         let mut value: *const OrtValue = std::ptr::null();
         status_to_result(unsafe {
             self.api.KernelContext_GetInput.unwrap()(self.context, index, &mut value)
@@ -120,37 +105,16 @@ impl<'s> KernelContext<'s> {
             )?;
         }
         let value = unsafe { &mut *(value as *mut OrtValue) };
-        let value = Value {
+        Ok(Value {
             value,
             api: self.api,
-        };
-
-        // Get the data
-        let data = {
-            let element_count = value
-                .get_tensor_type_and_shape()?
-                .get_tensor_shape_element_count()?;
-
-            let mut ptr: *mut _ = std::ptr::null_mut();
-            unsafe {
-                self.api.GetTensorMutableData.unwrap()(value.value, &mut ptr);
-                std::slice::from_raw_parts(ptr as *mut T, element_count as usize)
-            }
-        };
-
-        // Figure out the correct shape
-        let dims: Vec<_> = {
-            let info = value.get_tensor_type_and_shape().unwrap();
-            info.get_dimensions()
-                .unwrap()
-                .into_iter()
-                .map(|el| el as usize)
-                .collect()
-        };
-
-        let a = ArrayView::from(data).into_shape(dims).unwrap();
-        Ok(a)
+        })
     }
+
+    // pub fn get_input<T>(&self, index: u64) -> Result<ArrayView<T, IxDyn>> {
+    //     let mut value = self.get_input_value(index)?;
+    //     value.get_tensor_data::<T>()
+    // }
 
     pub unsafe fn get_safe_output<'inner>(self, index: u64) -> OutputValue<'s> {
         OutputValue::<'s> {
@@ -169,8 +133,12 @@ impl<'s> KernelContext<'s> {
     }
 
     #[allow(unused)]
-    fn get_input_count(&self) -> Result<usize> {
-        unimplemented!()
+    pub fn get_input_count(&self) -> Result<u64> {
+        let mut val = 0;
+        status_to_result(unsafe {
+            self.api.KernelContext_GetInputCount.unwrap()(self.context, &mut val)
+        })?;
+        Ok(val)
     }
 }
 
@@ -192,6 +160,62 @@ impl<'s> KernelInfo<'s> {
 type Type = ONNXType;
 
 impl<'s> Value<'s> {
+    /// Get mutable reference to the data of the associated tensor.
+    pub fn get_tensor_data_mut<T>(self) -> Result<ArrayViewMut<'s, T, IxDyn>> {
+        // Get the data
+        let data = {
+            let element_count = self
+                .get_tensor_type_and_shape()?
+                .get_tensor_shape_element_count()?;
+
+            let mut ptr: *mut _ = std::ptr::null_mut();
+            // This is unsafe if we have more than one Value pointing
+            // to the same input/output slot! The User should not be
+            // able to create `Value`s themselves!
+            unsafe {
+                self.api.GetTensorMutableData.unwrap()(self.value, &mut ptr);
+                std::slice::from_raw_parts_mut(ptr as *mut T, element_count as usize)
+            }
+        };
+        // Figure out the correct shape
+        let dims: Vec<_> = {
+            let info = self.get_tensor_type_and_shape()?;
+            info.get_dimensions()?
+                .into_iter()
+                .map(|el| el as usize)
+                .collect()
+        };
+        Ok(ArrayViewMut::from(data)
+            .into_shape(dims)
+            .expect("Shape information was incorrect."))
+    }
+
+    pub fn get_tensor_data<T>(self) -> Result<ArrayView<'s, T, IxDyn>> {
+        // Get the data
+        let data = {
+            let element_count = self
+                .get_tensor_type_and_shape()?
+                .get_tensor_shape_element_count()?;
+
+            let mut ptr: *mut _ = std::ptr::null_mut();
+            unsafe {
+                self.api.GetTensorMutableData.unwrap()(self.value, &mut ptr);
+                std::slice::from_raw_parts(ptr as *mut T, element_count as usize)
+            }
+        };
+        // Figure out the correct shape
+        let dims: Vec<_> = {
+            let info = self.get_tensor_type_and_shape()?;
+            info.get_dimensions()?
+                .into_iter()
+                .map(|el| el as usize)
+                .collect()
+        };
+        Ok(ArrayView::from(data)
+            .into_shape(dims)
+            .expect("Shape information was incorrect."))
+    }
+
     pub fn get_tensor_type_and_shape(&self) -> Result<TensorTypeAndShapeInfo<'s>> {
         let mut info: *mut OrtTensorTypeAndShapeInfo = std::ptr::null_mut();
         unsafe {
@@ -306,6 +330,37 @@ impl ElementType {
             Self::I32 => ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32,
             Self::I64 => ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64,
             Self::String => ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_STRING,
+        }
+    }
+}
+
+impl<'s> SessionOptions<'s> {
+    pub fn from_ort(api_base: &mut OrtApiBase, options: &'s mut OrtSessionOptions) -> Self {
+        // Version 12 is the latest one supported by the installed
+        // onnxruntime. I should probably downgrade the c api file.
+        let api = unsafe { api_base.GetApi.unwrap()(12) };
+        Self {
+            api: unsafe { &*api },
+            session_options: options,
+        }
+    }
+
+    pub fn create_custom_op_domain(&mut self, domain: &str) -> Result<CustomOpDomain> {
+        let fun_ptr = self.api.CreateCustomOpDomain.unwrap();
+        let mut domain_ptr: *mut OrtCustomOpDomain = std::ptr::null_mut();
+
+        // Leak!
+        let c_op_domain = str_to_c_char_ptr(domain);
+        unsafe {
+            status_to_result(fun_ptr(c_op_domain, &mut domain_ptr))?;
+            status_to_result(self.api.AddCustomOpDomain.unwrap()(
+                self.session_options,
+                domain_ptr,
+            ))?;
+            Ok(CustomOpDomain {
+                api: self.api,
+                custom_op_domain: &mut *domain_ptr,
+            })
         }
     }
 }

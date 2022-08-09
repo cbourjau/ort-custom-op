@@ -1,9 +1,7 @@
 use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
 
-use ndarray;
-
-use crate::api::{ElementType, OutputValue};
+use crate::api::{ElementType, OutputValue, Value};
 use crate::{
     size_t, Api, ExecutionProviders, KernelContext, ONNXTensorElementDataType, OrtApi, OrtCustomOp,
     OrtCustomOpInputOutputCharacteristic, OrtKernelContext, OrtKernelInfo,
@@ -18,7 +16,12 @@ pub trait CustomOp {
     const EXECUTION_PROVIDER: ExecutionProviders = ExecutionProviders::Cpu;
     // fn get_input_type(op: &OrtCustomOp, index: usize);
     fn kernel_create(op: &OrtCustomOp, api: Api, info: &OrtKernelInfo) -> Self;
-    fn kernel_compute(&self, context: &KernelContext, outputs: &mut [OutputValue]);
+    fn kernel_compute(
+        &self,
+        context: &KernelContext,
+        inputs: Vec<Value>,
+        outputs: Vec<OutputValue>,
+    );
     fn get_api(&self) -> &Api;
 }
 
@@ -75,15 +78,29 @@ pub const fn build<T: CustomOp>() -> OrtCustomOp {
         // mutably for the output. The second one could also access
         // the same output memory mutably, so this is not safe!
         let context_output = KernelContext::from_raw(api, context);
+
+        let n_inputs = context_output.get_input_count().unwrap();
+        let inputs = {
+            let mut inputs = vec![];
+            for n in 0..n_inputs {
+                inputs.push(
+                    KernelContext::from_raw(api, context)
+                        .get_input_value(n)
+                        .unwrap(),
+                )
+            }
+            inputs
+        };
+
         let n_outputs = context_output.get_output_count().unwrap();
-        let mut outputs = {
+        let outputs = {
             let mut outputs = vec![];
             for n in 0..n_outputs {
                 outputs.push(KernelContext::from_raw(api, context).get_safe_output(n))
             }
             outputs
         };
-        kernel.kernel_compute(&context_output, &mut outputs);
+        kernel.kernel_compute(&context_output, inputs, outputs);
     }
 
     unsafe extern "C" fn kernel_destroy<T: CustomOp>(op_kernel: *mut c_void) {

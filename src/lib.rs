@@ -74,9 +74,17 @@ mod op_one {
             KernelOne { api }
         }
 
-        fn kernel_compute(&self, context: &KernelContext, outputs: &mut [OutputValue]) {
-            let array_x = context.get_input::<f32>(0).unwrap();
-            let array_y = context.get_input::<f32>(1).unwrap();
+        fn kernel_compute(
+            &self,
+            _context: &KernelContext,
+            inputs: Vec<Value>,
+            mut outputs: Vec<OutputValue>,
+        ) {
+            let mut inputs = inputs.into_iter();
+            let value_x = inputs.next().unwrap();
+            let value_y = inputs.next().unwrap();
+            let array_x = value_x.get_tensor_data().unwrap();
+            let array_y = value_y.get_tensor_data::<f32>().unwrap();
             let dims_x = array_x.shape();
 
             let mut array_z = { outputs[0].get_output_mut::<f32>(&dims_x).unwrap() };
@@ -98,8 +106,18 @@ mod op_one {
             Self { api }
         }
 
-        fn kernel_compute(&self, context: &KernelContext, outputs: &mut [OutputValue]) {
-            let array_x = context.get_input::<f32>(0).unwrap();
+        fn kernel_compute(
+            &self,
+            _context: &KernelContext,
+            inputs: Vec<Value>,
+            mut outputs: Vec<OutputValue>,
+        ) {
+            let array_x = inputs
+                .into_iter()
+                .next()
+                .unwrap()
+                .get_tensor_data::<f32>()
+                .unwrap();
             let dims_x = array_x.shape();
             let mut array_z = { outputs[0].get_output_mut::<i32>(&dims_x).unwrap() };
             array_z.assign(&array_x.mapv(|el| el.round() as i32));
@@ -112,9 +130,10 @@ pub extern "C" fn RegisterCustomOps(
     options: &mut OrtSessionOptions,
     api_base: &mut OrtApiBase,
 ) -> *mut OrtStatus {
-    let api = Api::from_raw(unsafe { &*api_base.GetApi.unwrap()(12) });
-    let status = api
-        .create_custom_op_domain("test.customop", options)
+    let mut options = SessionOptions::from_ort(api_base, options);
+
+    let status = options
+        .create_custom_op_domain("test.customop")
         .and_then(|mut domain| {
             domain.add_op_to_domain(&op_one::OP_ONE)?;
             domain.add_op_to_domain(&op_one::OP_TWO)
