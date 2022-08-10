@@ -15,14 +15,18 @@ pub trait CustomOp {
 
     const EXECUTION_PROVIDER: ExecutionProviders = ExecutionProviders::Cpu;
     // fn get_input_type(op: &OrtCustomOp, index: usize);
-    fn kernel_create(op: &OrtCustomOp, api: Api, info: &OrtKernelInfo) -> Self;
+    fn kernel_create(op: &OrtCustomOp, api: &Api, info: &OrtKernelInfo) -> Self;
     fn kernel_compute(
         &self,
         context: &KernelContext,
         inputs: Vec<Value>,
         outputs: Vec<OutputValue>,
     );
-    fn get_api(&self) -> &Api;
+}
+
+struct WrappedKernel<T> {
+    user_kernel: T,
+    api: Api,
 }
 
 pub const fn build<T: CustomOp>() -> OrtCustomOp {
@@ -63,28 +67,30 @@ pub const fn build<T: CustomOp>() -> OrtCustomOp {
         info: *const OrtKernelInfo,
     ) -> *mut c_void {
         let api = Api::from_raw(&*api);
-        let kernel = T::kernel_create(&*op, api, &*info);
-        Box::leak(Box::new(kernel)) as *mut _ as *mut c_void
+        let user_kernel = T::kernel_create(&*op, &api, &*info);
+        let wrapped_kernel = WrappedKernel { user_kernel, api };
+        Box::leak(Box::new(wrapped_kernel)) as *mut _ as *mut c_void
     }
 
     unsafe extern "C" fn kernel_compute<T: CustomOp>(
         op_kernel: *mut c_void,
         context: *mut OrtKernelContext,
     ) {
-        let kernel: &mut T = &mut *(op_kernel as *mut _);
-        let api = kernel.get_api();
+        let wrapped_kernel: &mut WrappedKernel<T> = &mut *(op_kernel as *mut _);
+        let kernel = &wrapped_kernel.user_kernel;
+        let api = &wrapped_kernel.api;
 
         // Create to Context objects since we need to borrow it
         // mutably for the output. The second one could also access
         // the same output memory mutably, so this is not safe!
-        let context_output = KernelContext::from_raw(api, context);
+        let context_output = KernelContext::from_raw(&api, context);
 
         let n_inputs = context_output.get_input_count().unwrap();
         let inputs = {
             let mut inputs = vec![];
             for n in 0..n_inputs {
                 inputs.push(
-                    KernelContext::from_raw(api, context)
+                    KernelContext::from_raw(&api, context)
                         .get_input_value(n)
                         .unwrap(),
                 )
@@ -96,7 +102,7 @@ pub const fn build<T: CustomOp>() -> OrtCustomOp {
         let outputs = {
             let mut outputs = vec![];
             for n in 0..n_outputs {
-                outputs.push(KernelContext::from_raw(api, context).get_safe_output(n))
+                outputs.push(KernelContext::from_raw(&api, context).get_safe_output(n))
             }
             outputs
         };
@@ -104,7 +110,7 @@ pub const fn build<T: CustomOp>() -> OrtCustomOp {
     }
 
     unsafe extern "C" fn kernel_destroy<T: CustomOp>(op_kernel: *mut c_void) {
-        Box::from_raw(op_kernel as *mut T);
+        Box::from_raw(op_kernel as *mut WrappedKernel<T>);
         dbg!("kernel_destroy");
     }
 

@@ -51,14 +51,10 @@ mod op_one {
     pub const OP_TWO: OrtCustomOp = build::<KernelTwo>();
 
     #[derive(Debug)]
-    struct KernelOne {
-        api: Api,
-    }
+    struct KernelOne;
 
     #[derive(Debug)]
-    struct KernelTwo {
-        api: Api,
-    }
+    struct KernelTwo;
 
     impl CustomOp for KernelOne {
         const VERSION: u32 = 1;
@@ -66,12 +62,8 @@ mod op_one {
         const INPUT_TYPES: &'static [ElementType] = &[ElementType::F32, ElementType::F32];
         const OUTPUT_TYPES: &'static [ElementType] = &[ElementType::F32];
 
-        fn get_api(&self) -> &Api {
-            &self.api
-        }
-
-        fn kernel_create(_op: &OrtCustomOp, api: Api, _info: &OrtKernelInfo) -> Self {
-            KernelOne { api }
+        fn kernel_create(_op: &OrtCustomOp, _api: &Api, _info: &OrtKernelInfo) -> Self {
+            KernelOne
         }
 
         fn kernel_compute(
@@ -99,11 +91,8 @@ mod op_one {
         const INPUT_TYPES: &'static [ElementType] = &[ElementType::F32];
         const OUTPUT_TYPES: &'static [ElementType] = &[ElementType::I32];
 
-        fn get_api(&self) -> &Api {
-            &self.api
-        }
-        fn kernel_create(_op: &OrtCustomOp, api: Api, _info: &OrtKernelInfo) -> Self {
-            Self { api }
+        fn kernel_create(_op: &OrtCustomOp, _api: &Api, _info: &OrtKernelInfo) -> Self {
+            Self
         }
 
         fn kernel_compute(
