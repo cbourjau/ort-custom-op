@@ -160,36 +160,6 @@ impl<'s> KernelInfo<'s> {
 type Type = ONNXType;
 
 impl<'s> Value<'s> {
-    /// Get mutable reference to the data of the associated tensor.
-    pub fn get_tensor_data_mut<T>(self) -> Result<ArrayViewMut<'s, T, IxDyn>> {
-        // Get the data
-        let data = {
-            let element_count = self
-                .get_tensor_type_and_shape()?
-                .get_tensor_shape_element_count()?;
-
-            let mut ptr: *mut _ = std::ptr::null_mut();
-            // This is unsafe if we have more than one Value pointing
-            // to the same input/output slot! The User should not be
-            // able to create `Value`s themselves!
-            unsafe {
-                self.api.GetTensorMutableData.unwrap()(self.value, &mut ptr);
-                std::slice::from_raw_parts_mut(ptr as *mut T, element_count as usize)
-            }
-        };
-        // Figure out the correct shape
-        let dims: Vec<_> = {
-            let info = self.get_tensor_type_and_shape()?;
-            info.get_dimensions()?
-                .into_iter()
-                .map(|el| el as usize)
-                .collect()
-        };
-        Ok(ArrayViewMut::from(data)
-            .into_shape(dims)
-            .expect("Shape information was incorrect."))
-    }
-
     pub fn get_tensor_data<T>(self) -> Result<ArrayView<'s, T, IxDyn>> {
         // Get the data
         let data = {
@@ -286,7 +256,7 @@ impl<'s> CustomOpDomain<'s> {
 }
 
 impl<'s> OutputValue<'s> {
-    pub fn get_output_mut<T>(&mut self, shape: &[usize]) -> Result<ArrayViewMut<T, IxDyn>> {
+    pub fn get_tensor_data_mut<T>(self, shape: &[usize]) -> Result<ArrayViewMut<T, IxDyn>> {
         let value = unsafe {
             let mut value: *mut OrtValue = std::ptr::null_mut();
             let shape: Vec<_> = shape.iter().map(|el| *el as i64).collect();

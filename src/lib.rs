@@ -10,7 +10,7 @@ mod api;
 mod custom_op;
 
 use api::*;
-use custom_op::{build, CustomOp};
+use custom_op::{build, CustomOp, Inputs, Outputs};
 
 type Result<T> = std::result::Result<T, OrtStatusPtr>;
 
@@ -66,21 +66,9 @@ mod op_one {
             KernelOne
         }
 
-        fn kernel_compute(
-            &self,
-            _context: &KernelContext,
-            inputs: Vec<Value>,
-            mut outputs: Vec<OutputValue>,
-        ) {
-            let mut inputs = inputs.into_iter();
-            let value_x = inputs.next().unwrap();
-            let value_y = inputs.next().unwrap();
-            let array_x = value_x.get_tensor_data().unwrap();
-            let array_y = value_y.get_tensor_data::<f32>().unwrap();
-            let dims_x = array_x.shape();
-
-            let mut array_z = { outputs[0].get_output_mut::<f32>(&dims_x).unwrap() };
-
+        fn kernel_compute(&self, _context: &KernelContext, inputs: Inputs, outputs: Outputs) {
+            let (array_x, array_y) = inputs.into_2_arrays::<f32, f32>();
+            let mut array_z = outputs.into_array(array_x.shape());
             array_z.assign(&(&array_x + &array_y));
         }
     }
@@ -95,20 +83,9 @@ mod op_one {
             Self
         }
 
-        fn kernel_compute(
-            &self,
-            _context: &KernelContext,
-            inputs: Vec<Value>,
-            mut outputs: Vec<OutputValue>,
-        ) {
-            let array_x = inputs
-                .into_iter()
-                .next()
-                .unwrap()
-                .get_tensor_data::<f32>()
-                .unwrap();
-            let dims_x = array_x.shape();
-            let mut array_z = { outputs[0].get_output_mut::<i32>(&dims_x).unwrap() };
+        fn kernel_compute(&self, _context: &KernelContext, inputs: Inputs, outputs: Outputs) {
+            let array_x = inputs.into_array::<f32>();
+            let mut array_z = outputs.into_array(array_x.shape());
             array_z.assign(&array_x.mapv(|el| el.round() as i32));
         }
     }

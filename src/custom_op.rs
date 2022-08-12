@@ -7,6 +7,72 @@ use crate::{
     OrtCustomOpInputOutputCharacteristic, OrtKernelContext, OrtKernelInfo,
 };
 
+pub trait IntoArrays<T> {
+    fn into_arrays(self) -> T;
+}
+use ndarray::{ArrayView, ArrayViewMut, IxDyn};
+
+#[derive(Debug)]
+pub struct Inputs<'s> {
+    inputs: Vec<Value<'s>>,
+}
+
+#[derive(Debug)]
+pub struct Outputs<'s> {
+    outputs: Vec<OutputValue<'s>>,
+}
+
+impl<'s> Inputs<'s> {
+    pub fn into_array<T1>(self) -> ArrayView<'s, T1, IxDyn> {
+        self.inputs
+            .into_iter()
+            .next()
+            .expect("Too few inputs.")
+            .get_tensor_data::<T1>()
+            .expect("Loading input data of given type failed.")
+    }
+    pub fn into_2_arrays<T1, T2>(self) -> (ArrayView<'s, T1, IxDyn>, ArrayView<'s, T2, IxDyn>) {
+        let mut it = self.inputs.into_iter();
+        (
+            it.next()
+                .expect("Too few inputs.")
+                .get_tensor_data::<T1>()
+                .expect("Loading input data of given type failed."),
+            it.next()
+                .expect("Too few inputs.")
+                .get_tensor_data::<T2>()
+                .expect("Loading input data of given type failed."),
+        )
+    }
+}
+
+impl<'s> Outputs<'s> {
+    pub fn into_array<T1>(self, shape1: &'s [usize]) -> ArrayViewMut<'s, T1, IxDyn> {
+        let mut it = self.outputs.into_iter();
+        it.next()
+            .expect("Too few inputs.")
+            .get_tensor_data_mut::<T1>(shape1)
+            .expect("Loading input data of given type failed.")
+    }
+    pub fn into_2_arrays<T1, T2>(
+        self,
+        shape1: &'s [usize],
+        shape2: &'s [usize],
+    ) -> (ArrayViewMut<'s, T1, IxDyn>, ArrayViewMut<'s, T2, IxDyn>) {
+        let mut it = self.outputs.into_iter();
+        (
+            it.next()
+                .expect("Too few inputs.")
+                .get_tensor_data_mut::<T1>(shape1)
+                .expect("Loading input data of given type failed."),
+            it.next()
+                .expect("Too few inputs.")
+                .get_tensor_data_mut::<T2>(shape2)
+                .expect("Loading input data of given type failed."),
+        )
+    }
+}
+
 pub trait CustomOp {
     const VERSION: u32;
     const NAME: &'static str;
@@ -16,12 +82,7 @@ pub trait CustomOp {
     const EXECUTION_PROVIDER: ExecutionProviders = ExecutionProviders::Cpu;
     // fn get_input_type(op: &OrtCustomOp, index: usize);
     fn kernel_create(op: &OrtCustomOp, api: &Api, info: &OrtKernelInfo) -> Self;
-    fn kernel_compute(
-        &self,
-        context: &KernelContext,
-        inputs: Vec<Value>,
-        outputs: Vec<OutputValue>,
-    );
+    fn kernel_compute(&self, context: &KernelContext, inputs: Inputs, outputs: Outputs);
 }
 
 struct WrappedKernel<T> {
@@ -106,7 +167,7 @@ pub const fn build<T: CustomOp>() -> OrtCustomOp {
             }
             outputs
         };
-        kernel.kernel_compute(&context_output, inputs, outputs);
+        kernel.kernel_compute(&context_output, Inputs { inputs }, Outputs { outputs });
     }
 
     unsafe extern "C" fn kernel_destroy<T: CustomOp>(op_kernel: *mut c_void) {
