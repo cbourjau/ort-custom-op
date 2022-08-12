@@ -1,13 +1,14 @@
-use crate::{
-    ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_DOUBLE,
-    ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
-    ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32,
-    ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64,
-    ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_STRING, OrtApiBase,
-};
-
 use crate::*;
+
+use crate::bindings::*;
+
 use ndarray::{ArrayView, ArrayViewMut, IxDyn};
+
+type Result<T> = std::result::Result<T, OrtStatusPtr>;
+
+pub enum ExecutionProviders {
+    Cpu,
+}
 
 #[derive(Debug)]
 pub struct Api {
@@ -332,5 +333,31 @@ impl<'s> SessionOptions<'s> {
                 custom_op_domain: &mut *domain_ptr,
             })
         }
+    }
+}
+
+fn str_to_c_char_ptr(s: &str) -> *const c_char {
+    CString::new(s).unwrap().into_raw()
+}
+
+/// Wraps a status pointer into a result.
+///
+///A null pointer is mapped to the `Ok(())`.
+fn status_to_result(ptr: OrtStatusPtr) -> Result<()> {
+    if ptr.is_null() {
+        Ok(())
+    } else {
+        Err(ptr)
+    }
+}
+
+impl ExecutionProviders {
+    /// Execution provider as null terminated string with static
+    /// lifetime.
+    pub const fn as_c_char_ptr(&self) -> &'static c_char {
+        let null_term_str = match self {
+            Self::Cpu => b"CPUExecutionProvider\0".as_ptr(),
+        };
+        unsafe { &*(null_term_str as *const _) }
     }
 }

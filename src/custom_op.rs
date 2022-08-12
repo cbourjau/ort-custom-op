@@ -1,10 +1,10 @@
 use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
 
-use crate::api::{ElementType, OutputValue, Value};
-use crate::{
-    size_t, Api, ExecutionProviders, KernelContext, ONNXTensorElementDataType, OrtApi, OrtCustomOp,
-    OrtCustomOpInputOutputCharacteristic, OrtKernelContext, OrtKernelInfo,
+use crate::api::{Api, ElementType, ExecutionProviders, KernelContext, OutputValue, Value};
+use crate::bindings::{
+    size_t, ONNXTensorElementDataType, OrtApi, OrtCustomOp, OrtCustomOpInputOutputCharacteristic,
+    OrtKernelContext, OrtKernelInfo,
 };
 
 pub trait IntoArrays<T> {
