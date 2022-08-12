@@ -18,7 +18,7 @@ Run the following at the root of this repository to build the shared
 library and run the python-defined tests:
 
 ```python
-cargo b && pytest ~/repos/custom-op/ -s
+cargo b && pytest . -s
 ```
 
 
