@@ -172,7 +172,6 @@ pub const fn build<T: CustomOp>() -> OrtCustomOp {
 
     unsafe extern "C" fn kernel_destroy<T: CustomOp>(op_kernel: *mut c_void) {
         Box::from_raw(op_kernel as *mut WrappedKernel<T>);
-        dbg!("kernel_destroy");
     }
 
     extern "C" fn get_input_characteristic(
