@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from platform import platform
 
 import onnxruntime as onnxrt
 import numpy as np
@@ -9,7 +10,10 @@ ROOT = Path(__file__).parent.parent.parent
 
 def test_rust_dylib():
     onnxrt.set_default_logger_severity(3)
-    shared_library = str(ROOT / "target/debug/libcustom_op.dylib")
+    if "macOS" in platform():
+        shared_library = str(ROOT / "target/debug/libcustom_op.dylib")
+    else:
+        shared_library = str(ROOT / "target/debug/libcustom_op.so")
     if not os.path.exists(shared_library):
         raise FileNotFoundError("Unable to find '{0}'".format(shared_library))
 

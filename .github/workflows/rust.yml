@@ -22,4 +22,4 @@ jobs:
     - name: Run Rust tests
       run: cargo test --verbose
     - name: Run Python tests
-      run: pytest tests/python -s
+      run: cargo build && pytest tests/python -s
