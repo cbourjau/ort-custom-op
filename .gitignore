@@ -3,3 +3,4 @@
 rust/custom_op/target/*
 /target/
 /.venv/
+/.envrc
