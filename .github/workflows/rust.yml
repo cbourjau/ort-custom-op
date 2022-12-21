@@ -16,7 +16,7 @@ jobs:
       with:
         python-version: '3.10'
     - run: python -m pip install --upgrade pip
-    - run: pip install pytest onnxruntime
+    - run: pip install -r requirements.txt
     - name: Build
       run: cargo build --verbose
     - name: Run Rust tests
