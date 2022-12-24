@@ -11,19 +11,14 @@ pub enum ExecutionProviders {
 }
 
 #[derive(Debug)]
-pub struct Api {
+pub struct KernelContext<'s> {
+    context: &'s mut OrtKernelContext,
     api: &'static OrtApi,
 }
 
 #[derive(Debug)]
-pub struct KernelContext<'s> {
-    context: &'s mut OrtKernelContext,
-    api: &'s Api,
-}
-
-#[derive(Debug)]
 pub struct KernelInfo<'s> {
-    api: &'s OrtApi,
+    api: &'static OrtApi,
     info: &'s OrtKernelInfo,
 }
 
@@ -31,25 +26,18 @@ pub struct KernelInfo<'s> {
 #[derive(Debug)]
 pub struct Value<'s> {
     value: &'s mut OrtValue,
-    api: &'s Api,
+    api: &'static OrtApi,
 }
 
 #[derive(Debug)]
 pub struct OutputValue<'s> {
-    api: Api,
+    api: &'static OrtApi,
     context: &'s mut OrtKernelContext,
     index: u64,
 }
 
-// From Value
-#[derive(Debug)]
-pub struct TensorTypeAndShapeInfo<'s> {
-    api: &'s Api,
-    info: &'s mut OrtTensorTypeAndShapeInfo,
-}
-
 pub struct CustomOpDomain<'s> {
-    api: &'s OrtApi,
+    api: &'static OrtApi,
     custom_op_domain: &'s mut OrtCustomOpDomain,
 }
 
@@ -66,27 +54,19 @@ pub struct SessionOptions<'s> {
     session_options: &'s mut OrtSessionOptions,
 }
 
-impl std::ops::Deref for Api {
-    type Target = OrtApi;
-
-    fn deref(&self) -> &Self::Target {
-        self.api
-    }
+#[derive(Debug)]
+struct TensorTypeAndShapeInfo<'s> {
+    api: &'static OrtApi,
+    info: &'s mut OrtTensorTypeAndShapeInfo,
 }
 
-impl Api {
-    pub fn from_raw(api: &'static OrtApi) -> Self {
-        Self { api }
-    }
-
-    fn create_error_status(&self, code: u32, msg: &str) -> *mut OrtStatus {
-        let c_char_ptr = str_to_c_char_ptr(msg);
-        unsafe { self.CreateStatus.unwrap()(code, c_char_ptr) }
-    }
+fn create_error_status(api: &OrtApi, code: u32, msg: &str) -> *mut OrtStatus {
+    let c_char_ptr = str_to_c_char_ptr(msg);
+    unsafe { api.CreateStatus.unwrap()(code, c_char_ptr) }
 }
 
 impl<'s> KernelContext<'s> {
-    pub fn from_raw(api: &'s Api, context: *mut OrtKernelContext) -> Self {
+    pub fn from_raw(api: &'static OrtApi, context: *mut OrtKernelContext) -> Self {
         unsafe {
             Self {
                 api,
@@ -101,10 +81,11 @@ impl<'s> KernelContext<'s> {
             self.api.KernelContext_GetInput.unwrap()(self.context, index, &mut value)
         })?;
         if value.is_null() {
-            status_to_result(
-                self.api
-                    .create_error_status(OrtErrorCode_ORT_FAIL, "Failed to get input"),
-            )?;
+            status_to_result(create_error_status(
+                self.api,
+                OrtErrorCode_ORT_FAIL,
+                "Failed to get input",
+            ))?;
         }
         let value = unsafe { &mut *(value as *mut OrtValue) };
         Ok(Value {
@@ -120,7 +101,7 @@ impl<'s> KernelContext<'s> {
 
     pub unsafe fn get_safe_output(self, index: u64) -> OutputValue<'s> {
         OutputValue::<'s> {
-            api: Api::from_raw(self.api.api),
+            api: self.api,
             context: self.context,
             index,
         }
@@ -145,10 +126,7 @@ impl<'s> KernelContext<'s> {
 }
 
 impl<'s> KernelInfo<'s> {
-    pub fn from_ort<'inner>(
-        api: &'inner OrtApi,
-        info: &'inner OrtKernelInfo,
-    ) -> KernelInfo<'inner> {
+    pub fn from_ort<'info>(api: &'static OrtApi, info: &'info OrtKernelInfo) -> KernelInfo<'info> {
         KernelInfo { api, info }
     }
 
@@ -287,7 +265,7 @@ impl<'s> Value<'s> {
             .expect("Shape information was incorrect."))
     }
 
-    pub fn get_tensor_type_and_shape(&self) -> Result<TensorTypeAndShapeInfo<'s>> {
+    fn get_tensor_type_and_shape(&self) -> Result<TensorTypeAndShapeInfo<'s>> {
         let mut info: *mut OrtTensorTypeAndShapeInfo = std::ptr::null_mut();
         unsafe {
             self.api.GetTensorTypeAndShape.unwrap()(self.value, &mut info);
@@ -369,7 +347,7 @@ impl<'s> OutputValue<'s> {
                 &mut value,
             ))?;
             if value.is_null() {
-                return Err(self.api.create_error_status(0, "No value found"));
+                return Err(create_error_status(self.api, 0, "No value found"));
             }
             Value {
                 value: &mut *value,

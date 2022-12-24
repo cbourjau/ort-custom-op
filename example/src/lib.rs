@@ -35,7 +35,7 @@ impl CustomOp for CustomAdd {
     const INPUT_TYPES: &'static [ElementType] = &[ElementType::F32, ElementType::F32];
     const OUTPUT_TYPES: &'static [ElementType] = &[ElementType::F32];
 
-    fn kernel_create(_api: &Api, _info: &KernelInfo) -> Self {
+    fn kernel_create(_info: &KernelInfo) -> Self {
         CustomAdd
     }
 
@@ -58,7 +58,7 @@ impl CustomOp for ParseDateTime {
     const INPUT_TYPES: &'static [ElementType] = &[ElementType::String];
     const OUTPUT_TYPES: &'static [ElementType] = &[ElementType::I64];
 
-    fn kernel_create(_api: &Api, info: &KernelInfo) -> Self {
+    fn kernel_create(info: &KernelInfo) -> Self {
         let fmt = dbg!(info.get_attribute_string("fmt")).unwrap();
         Self { fmt }
     }

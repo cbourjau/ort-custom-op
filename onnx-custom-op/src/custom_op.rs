@@ -1,9 +1,7 @@
 use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
 
-use crate::api::{
-    Api, ElementType, ExecutionProviders, KernelContext, KernelInfo, OutputValue, Value,
-};
+use crate::api::{ElementType, ExecutionProviders, KernelContext, KernelInfo, OutputValue, Value};
 use crate::bindings::{
     size_t, ONNXTensorElementDataType, OrtApi, OrtCustomOp, OrtCustomOpInputOutputCharacteristic,
     OrtKernelContext, OrtKernelInfo,
@@ -92,13 +90,13 @@ pub trait CustomOp {
 
     const EXECUTION_PROVIDER: ExecutionProviders = ExecutionProviders::Cpu;
     // fn get_input_type(op: &OrtCustomOp, index: usize);
-    fn kernel_create(api: &Api, info: &KernelInfo) -> Self;
+    fn kernel_create(info: &KernelInfo) -> Self;
     fn kernel_compute(&self, context: &KernelContext, inputs: Inputs, outputs: Outputs);
 }
 
 struct WrappedKernel<T> {
     user_kernel: T,
-    api: Api,
+    api: &'static OrtApi,
 }
 
 pub const fn build<T: CustomOp>() -> OrtCustomOp {
@@ -138,9 +136,9 @@ pub const fn build<T: CustomOp>() -> OrtCustomOp {
         ort_api: *const OrtApi,
         ort_info: *const OrtKernelInfo,
     ) -> *mut c_void {
-        let api = Api::from_raw(&*ort_api);
-        let info = KernelInfo::from_ort(&*ort_api, &*ort_info);
-        let user_kernel = T::kernel_create(&api, &info);
+        let api = &*ort_api;
+        let info = KernelInfo::from_ort(api, &*ort_info);
+        let user_kernel = T::kernel_create(&info);
         let wrapped_kernel = WrappedKernel { user_kernel, api };
         Box::leak(Box::new(wrapped_kernel)) as *mut _ as *mut c_void
     }
@@ -156,7 +154,7 @@ pub const fn build<T: CustomOp>() -> OrtCustomOp {
         // Create to Context objects since we need to borrow it
         // mutably for the output. The second one could also access
         // the same output memory mutably, so this is not safe!
-        let context_output = KernelContext::from_raw(api, context);
+        let context_output = KernelContext::from_raw(api, &mut *context);
 
         let n_inputs = context_output.get_input_count().unwrap();
         let inputs = {
