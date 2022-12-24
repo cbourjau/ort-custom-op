@@ -1939,7 +1939,7 @@ struct OrtApi {
   ORT_API2_STATUS(ModelMetadataLookupCustomMetadataMap, _In_ const OrtModelMetadata* model_metadata,
                   _Inout_ OrtAllocator* allocator, _In_ const char* key, _Outptr_result_maybenull_ char** value);
 
-  /** \brief Get version number from an ::OrtModelMetadata
+  /** \brief Get number version from an ::OrtModelMetadata
   *
   * \param[in] model_metadata
   * \param[out] value Set to the version number

@@ -1,0 +1,14 @@
+[package]
+name = "example"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+# Example of customizing the library in Cargo.toml.
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+chrono = "0.4.23"
+onnx_custom_op = {path="../onnx-custom-op"}

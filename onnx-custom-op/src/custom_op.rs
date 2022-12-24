@@ -1,7 +1,9 @@
 use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
 
-use crate::api::{Api, ElementType, ExecutionProviders, KernelContext, OutputValue, Value};
+use crate::api::{
+    Api, ElementType, ExecutionProviders, KernelContext, KernelInfo, OutputValue, Value,
+};
 use crate::bindings::{
     size_t, ONNXTensorElementDataType, OrtApi, OrtCustomOp, OrtCustomOpInputOutputCharacteristic,
     OrtKernelContext, OrtKernelInfo,
@@ -10,7 +12,7 @@ use crate::bindings::{
 pub trait IntoArrays<T> {
     fn into_arrays(self) -> T;
 }
-use ndarray::{ArrayView, ArrayViewMut, IxDyn};
+use ndarray::{Array, ArrayView, ArrayViewMut, IxDyn};
 
 #[derive(Debug)]
 pub struct Inputs<'s> {
@@ -23,6 +25,15 @@ pub struct Outputs<'s> {
 }
 
 impl<'s> Inputs<'s> {
+    pub fn into_array_string(self) -> Array<String, IxDyn> {
+        self.inputs
+            .into_iter()
+            .next()
+            .expect("Too few inputs.")
+            .get_tensor_data_str()
+            .expect("Loading input data of given type failed.")
+    }
+
     pub fn into_array<T1>(self) -> ArrayView<'s, T1, IxDyn> {
         self.inputs
             .into_iter()
@@ -81,7 +92,7 @@ pub trait CustomOp {
 
     const EXECUTION_PROVIDER: ExecutionProviders = ExecutionProviders::Cpu;
     // fn get_input_type(op: &OrtCustomOp, index: usize);
-    fn kernel_create(op: &OrtCustomOp, api: &Api, info: &OrtKernelInfo) -> Self;
+    fn kernel_create(api: &Api, info: &KernelInfo) -> Self;
     fn kernel_compute(&self, context: &KernelContext, inputs: Inputs, outputs: Outputs);
 }
 
@@ -123,12 +134,13 @@ pub const fn build<T: CustomOp>() -> OrtCustomOp {
         T::OUTPUT_TYPES.len() as _
     }
     unsafe extern "C" fn create_kernel<T: CustomOp>(
-        op: *const OrtCustomOp,
-        api: *const OrtApi,
-        info: *const OrtKernelInfo,
+        _ort_op: *const OrtCustomOp,
+        ort_api: *const OrtApi,
+        ort_info: *const OrtKernelInfo,
     ) -> *mut c_void {
-        let api = Api::from_raw(&*api);
-        let user_kernel = T::kernel_create(&*op, &api, &*info);
+        let api = Api::from_raw(&*ort_api);
+        let info = KernelInfo::from_ort(&*ort_api, &*ort_info);
+        let user_kernel = T::kernel_create(&api, &info);
         let wrapped_kernel = WrappedKernel { user_kernel, api };
         Box::leak(Box::new(wrapped_kernel)) as *mut _ as *mut c_void
     }
@@ -144,14 +156,14 @@ pub const fn build<T: CustomOp>() -> OrtCustomOp {
         // Create to Context objects since we need to borrow it
         // mutably for the output. The second one could also access
         // the same output memory mutably, so this is not safe!
-        let context_output = KernelContext::from_raw(&api, context);
+        let context_output = KernelContext::from_raw(api, context);
 
         let n_inputs = context_output.get_input_count().unwrap();
         let inputs = {
             let mut inputs = vec![];
             for n in 0..n_inputs {
                 inputs.push(
-                    KernelContext::from_raw(&api, context)
+                    KernelContext::from_raw(api, context)
                         .get_input_value(n)
                         .unwrap(),
                 )
@@ -163,7 +175,7 @@ pub const fn build<T: CustomOp>() -> OrtCustomOp {
         let outputs = {
             let mut outputs = vec![];
             for n in 0..n_outputs {
-                outputs.push(KernelContext::from_raw(&api, context).get_safe_output(n))
+                outputs.push(KernelContext::from_raw(api, context).get_safe_output(n))
             }
             outputs
         };
@@ -171,7 +183,7 @@ pub const fn build<T: CustomOp>() -> OrtCustomOp {
     }
 
     unsafe extern "C" fn kernel_destroy<T: CustomOp>(op_kernel: *mut c_void) {
-        Box::from_raw(op_kernel as *mut WrappedKernel<T>);
+        drop(Box::from_raw(op_kernel as *mut WrappedKernel<T>));
     }
 
     extern "C" fn get_input_characteristic(

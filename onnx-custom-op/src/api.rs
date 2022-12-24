@@ -2,7 +2,7 @@ use crate::*;
 
 use crate::bindings::*;
 
-use ndarray::{ArrayView, ArrayViewMut, IxDyn};
+use ndarray::{Array, ArrayView, ArrayViewMut, IxDyn};
 
 type Result<T> = std::result::Result<T, OrtStatusPtr>;
 
@@ -23,7 +23,8 @@ pub struct KernelContext<'s> {
 
 #[derive(Debug)]
 pub struct KernelInfo<'s> {
-    _kernel_info: &'s OrtKernelInfo,
+    api: &'s OrtApi,
+    info: &'s OrtKernelInfo,
 }
 
 // From context
@@ -117,7 +118,7 @@ impl<'s> KernelContext<'s> {
     //     value.get_tensor_data::<T>()
     // }
 
-    pub unsafe fn get_safe_output<'inner>(self, index: u64) -> OutputValue<'s> {
+    pub unsafe fn get_safe_output(self, index: u64) -> OutputValue<'s> {
         OutputValue::<'s> {
             api: Api::from_raw(self.api.api),
             context: self.context,
@@ -144,9 +145,47 @@ impl<'s> KernelContext<'s> {
 }
 
 impl<'s> KernelInfo<'s> {
-    #[allow(unused)]
-    fn get_attribute<T>(&self, name: &str) -> Result<&T> {
-        unimplemented!()
+    pub fn from_ort<'inner>(
+        api: &'inner OrtApi,
+        info: &'inner OrtKernelInfo,
+    ) -> KernelInfo<'inner> {
+        KernelInfo { api, info }
+    }
+
+    pub fn get_attribute_string(&self, name: &str) -> Result<String> {
+        let name = CString::new(name).unwrap();
+        // Get size first
+        let mut size = {
+            let mut size = 0;
+            // let buf: *mut _ = std::ptr::null_mut();
+            unsafe {
+                status_to_result_dbg(
+                    self.api.KernelInfoGetAttribute_string.unwrap()(
+                        self.info,
+                        name.as_ptr(),
+                        std::ptr::null_mut(),
+                        &mut size,
+                    ),
+                    self.api,
+                )?;
+                size
+            }
+        };
+
+        let mut buf = vec![0u8; size as _];
+        unsafe {
+            status_to_result(self.api.KernelInfoGetAttribute_string.unwrap()(
+                self.info,
+                name.as_ptr(),
+                buf.as_mut_ptr() as *mut i8,
+                &mut size,
+            ))
+            .unwrap()
+        };
+        Ok(CString::from_vec_with_nul(buf)
+            .unwrap()
+            .into_string()
+            .unwrap())
     }
 
     // Not implemented for string?
@@ -161,6 +200,67 @@ impl<'s> KernelInfo<'s> {
 type Type = ONNXType;
 
 impl<'s> Value<'s> {
+    // The API seems to force us to copy the data, hence the owned type...
+    pub fn get_tensor_data_str(self) -> Result<Array<String, IxDyn>> {
+        // GetTensorMutableData is not supposed to be used for
+        // strings, according to the api docs.
+
+        // number of strings
+        let item_count = self
+            .get_tensor_type_and_shape()?
+            .get_tensor_shape_element_count()?;
+        // total number of bytes of all concatenated strings (no trailing nulls!)
+        let non_null_bytes = {
+            let mut non_null_bytes: u64 = 0;
+            let fun_ptr = self.api.GetStringTensorDataLength.unwrap();
+            unsafe { fun_ptr(self.value, &mut non_null_bytes) };
+            non_null_bytes
+        };
+
+        // Read all strings concatenated into one string. Seems odd,
+        // but that is what the api offers...
+        let strings: Vec<_> = {
+            let fun_ptr = self.api.GetStringTensorContent.unwrap();
+            let mut buf = vec![0u8; non_null_bytes as usize];
+            let mut offsets = vec![0usize; item_count as usize];
+            unsafe {
+                fun_ptr(
+                    self.value,
+                    buf.as_mut_ptr() as *mut _,
+                    non_null_bytes,
+                    offsets.as_mut_ptr() as *mut _,
+                    offsets.len() as u64,
+                );
+            }
+
+            // Compute windows with the start and end of each
+            // substring and then scan the buffer.
+            let very_end = [non_null_bytes as usize];
+            let starts = offsets.iter();
+            let ends = offsets.iter().chain(very_end.iter()).skip(1);
+            let windows = starts.zip(ends);
+            windows
+                .scan(buf.as_slice(), |buf: &mut &[u8], (start, end)| {
+                    let (this, rest) = buf.split_at(end - start);
+                    *buf = rest;
+                    // The following allocation could be avoided
+                    Some(String::from_utf8(this.to_vec()).unwrap())
+                })
+                .collect()
+        };
+        // Figure out the correct shape
+        let dims: Vec<_> = {
+            let info = self.get_tensor_type_and_shape()?;
+            info.get_dimensions()?
+                .into_iter()
+                .map(|el| el as usize)
+                .collect()
+        };
+        Ok(Array::from(strings)
+            .into_shape(dims)
+            .expect("Shape information was incorrect."))
+    }
+
     pub fn get_tensor_data<T>(self) -> Result<ArrayView<'s, T, IxDyn>> {
         // Get the data
         let data = {
@@ -320,9 +420,10 @@ impl<'s> SessionOptions<'s> {
         let fun_ptr = self.api.CreateCustomOpDomain.unwrap();
         let mut domain_ptr: *mut OrtCustomOpDomain = std::ptr::null_mut();
 
-        // Leak!
+        // Copies and leaks!
         let c_op_domain = str_to_c_char_ptr(domain);
         unsafe {
+            // According to docs: "Must be freed with OrtApi::ReleaseCustomOpDomain"
             status_to_result(fun_ptr(c_op_domain, &mut domain_ptr))?;
             status_to_result(self.api.AddCustomOpDomain.unwrap()(
                 self.session_options,
@@ -347,6 +448,17 @@ fn status_to_result(ptr: OrtStatusPtr) -> Result<()> {
     if ptr.is_null() {
         Ok(())
     } else {
+        Err(ptr)
+    }
+}
+
+// Leaky way to just print the error message.
+fn status_to_result_dbg(ptr: OrtStatusPtr, api: &OrtApi) -> Result<()> {
+    if ptr.is_null() {
+        Ok(())
+    } else {
+        // let cstr_ptr = unsafe { api.GetErrorMessage.unwrap()(ptr) };
+        // unsafe { dbg!(CString::from_raw(cstr_ptr as *mut _)) };
         Err(ptr)
     }
 }
