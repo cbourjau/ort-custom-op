@@ -6,10 +6,6 @@ use ndarray::{Array, ArrayView, ArrayViewMut, IxDyn};
 
 type Result<T> = std::result::Result<T, OrtStatusPtr>;
 
-pub enum ExecutionProviders {
-    Cpu,
-}
-
 #[derive(Debug)]
 pub struct KernelContext<'s> {
     api: &'static OrtApi,
@@ -180,7 +176,6 @@ impl<'s> KernelInfo<'s> {
 }
 
 // Should be enum
-#[allow(unused)]
 type Type = ONNXType;
 
 impl<'s> Value<'s> {
@@ -453,16 +448,5 @@ fn status_to_result_dbg(ptr: OrtStatusPtr, _api: &OrtApi) -> Result<()> {
         // let cstr_ptr = unsafe { api.GetErrorMessage.unwrap()(ptr) };
         // unsafe { dbg!(CString::from_raw(cstr_ptr as *mut _)) };
         Err(ptr)
-    }
-}
-
-impl ExecutionProviders {
-    /// Execution provider as null terminated string with static
-    /// lifetime.
-    pub const fn as_c_char_ptr(&self) -> &'static c_char {
-        let null_term_str = match self {
-            Self::Cpu => b"CPUExecutionProvider\0".as_ptr(),
-        };
-        unsafe { &*(null_term_str as *const _) }
     }
 }

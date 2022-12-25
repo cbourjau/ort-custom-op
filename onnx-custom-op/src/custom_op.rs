@@ -1,7 +1,7 @@
 use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
 
-use crate::api::{ElementType, ExecutionProviders, KernelContext, KernelInfo};
+use crate::api::{ElementType, KernelContext, KernelInfo};
 use crate::bindings::{
     size_t, ONNXTensorElementDataType, OrtApi, OrtCustomOp, OrtCustomOpInputOutputCharacteristic,
     OrtKernelContext, OrtKernelInfo,
@@ -134,8 +134,6 @@ pub trait CustomOp {
     type OpInputs<'s>: Inputs<'s>;
     type OpOutputs<'s>: Outputs<'s>;
 
-    const EXECUTION_PROVIDER: ExecutionProviders = ExecutionProviders::Cpu;
-
     fn kernel_create(info: &KernelInfo) -> Self;
     fn kernel_compute<'s>(&self, inputs: Self::OpInputs<'s>) -> Self::OpOutputs<'s>;
 }
@@ -157,7 +155,7 @@ where
     extern "C" fn get_execution_provider_type<T: CustomOp>(
         _op: *const OrtCustomOp,
     ) -> *const c_char {
-        T::EXECUTION_PROVIDER.as_c_char_ptr()
+        b"CPUExecutionProvider\0".as_ptr() as *const _
     }
 
     extern "C" fn get_input_type<'s, T: CustomOp>(
