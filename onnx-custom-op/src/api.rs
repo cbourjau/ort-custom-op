@@ -70,7 +70,7 @@ impl<'s> KernelContext<'s> {
     pub(crate) fn from_raw(api: &'static OrtApi, context: *mut OrtKernelContext) -> Self {
         Self {
             api,
-            context: context,
+            context,
             marker: std::marker::PhantomData::<&'s [u8]>,
         }
     }
@@ -94,11 +94,6 @@ impl<'s> KernelContext<'s> {
             api: self.api,
         })
     }
-
-    // pub fn get_input<T>(&self, index: u64) -> Result<ArrayView<T, IxDyn>> {
-    //     let mut value = self.get_input_value(index)?;
-    //     value.get_tensor_data::<T>()
-    // }
 
     /// Get an OutputValue.
     ///
@@ -356,7 +351,7 @@ impl<'s> OutputValue<'s> {
             }
             Value {
                 value: &mut *value,
-                api: &self.api,
+                api: self.api,
             }
         };
         // This needs a refactor! The shape should be passed here,
@@ -436,7 +431,7 @@ fn status_to_result(ptr: OrtStatusPtr) -> Result<()> {
 }
 
 // Leaky way to just print the error message.
-fn status_to_result_dbg(ptr: OrtStatusPtr, api: &OrtApi) -> Result<()> {
+fn status_to_result_dbg(ptr: OrtStatusPtr, _api: &OrtApi) -> Result<()> {
     if ptr.is_null() {
         Ok(())
     } else {

@@ -227,6 +227,7 @@ name = "example"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "ndarray",
  "onnx_custom_op",
 ]
 
