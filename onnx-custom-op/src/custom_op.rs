@@ -150,34 +150,26 @@ pub const fn build<T: CustomOp>() -> OrtCustomOp {
         let wrapped_kernel: &mut WrappedKernel<T> = &mut *(op_kernel as *mut _);
         let kernel = &wrapped_kernel.user_kernel;
         let api = &wrapped_kernel.api;
+        let context = KernelContext::from_raw(api, &mut *context);
 
-        // Create to Context objects since we need to borrow it
-        // mutably for the output. The second one could also access
-        // the same output memory mutably, so this is not safe!
-        let context_output = KernelContext::from_raw(api, &mut *context);
-
-        let n_inputs = context_output.get_input_count().unwrap();
+        let n_inputs = context.get_input_count().unwrap();
         let inputs = {
             let mut inputs = vec![];
             for n in 0..n_inputs {
-                inputs.push(
-                    KernelContext::from_raw(api, context)
-                        .get_input_value(n)
-                        .unwrap(),
-                )
+                inputs.push(context.get_input_value(n).unwrap())
             }
             inputs
         };
 
-        let n_outputs = context_output.get_output_count().unwrap();
+        let n_outputs = context.get_output_count().unwrap();
         let outputs = {
             let mut outputs = vec![];
             for n in 0..n_outputs {
-                outputs.push(KernelContext::from_raw(api, context).get_safe_output(n))
+                outputs.push(context.get_output_value(n))
             }
             outputs
         };
-        kernel.kernel_compute(&context_output, Inputs { inputs }, Outputs { outputs });
+        kernel.kernel_compute(&context, Inputs { inputs }, Outputs { outputs });
     }
 
     unsafe extern "C" fn kernel_destroy<T: CustomOp>(op_kernel: *mut c_void) {

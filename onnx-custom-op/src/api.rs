@@ -12,8 +12,9 @@ pub enum ExecutionProviders {
 
 #[derive(Debug)]
 pub struct KernelContext<'s> {
-    context: &'s mut OrtKernelContext,
     api: &'static OrtApi,
+    context: *mut OrtKernelContext,
+    marker: std::marker::PhantomData<&'s [u8]>,
 }
 
 #[derive(Debug)]
@@ -66,16 +67,15 @@ fn create_error_status(api: &OrtApi, code: u32, msg: &str) -> *mut OrtStatus {
 }
 
 impl<'s> KernelContext<'s> {
-    pub fn from_raw(api: &'static OrtApi, context: *mut OrtKernelContext) -> Self {
-        unsafe {
-            Self {
-                api,
-                context: &mut *context,
-            }
+    pub(crate) fn from_raw(api: &'static OrtApi, context: *mut OrtKernelContext) -> Self {
+        Self {
+            api,
+            context: context,
+            marker: std::marker::PhantomData::<&'s [u8]>,
         }
     }
 
-    pub fn get_input_value(&self, index: u64) -> Result<Value<'s>> {
+    pub(crate) fn get_input_value(&self, index: u64) -> Result<Value<'s>> {
         let mut value: *const OrtValue = std::ptr::null();
         status_to_result(unsafe {
             self.api.KernelContext_GetInput.unwrap()(self.context, index, &mut value)
@@ -87,6 +87,7 @@ impl<'s> KernelContext<'s> {
                 "Failed to get input",
             ))?;
         }
+        // Unclear how one could do this without changing mutability here!
         let value = unsafe { &mut *(value as *mut OrtValue) };
         Ok(Value {
             value,
@@ -99,10 +100,14 @@ impl<'s> KernelContext<'s> {
     //     value.get_tensor_data::<T>()
     // }
 
-    pub unsafe fn get_safe_output(self, index: u64) -> OutputValue<'s> {
-        OutputValue::<'s> {
+    /// Get an OutputValue.
+    ///
+    /// This is unsafe because each output value has a mutable
+    /// reference to the `OrtKernelContext`.
+    pub(crate) unsafe fn get_output_value(&'s self, index: u64) -> OutputValue<'s> {
+        OutputValue {
             api: self.api,
-            context: self.context,
+            context: &mut *self.context,
             index,
         }
     }
