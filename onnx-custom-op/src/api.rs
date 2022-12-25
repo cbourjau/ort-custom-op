@@ -100,6 +100,7 @@ impl<'s> KernelContext<'s> {
     /// This is unsafe because each output value has a mutable
     /// reference to the `OrtKernelContext`.
     pub(crate) unsafe fn get_output_value(&'s self, index: u64) -> OutputValue<'s> {
+        // TODO: Should take &mut self!!!!!!
         OutputValue {
             api: self.api,
             context: &mut *self.context,

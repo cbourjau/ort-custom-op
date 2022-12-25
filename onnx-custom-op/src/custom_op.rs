@@ -1,45 +1,13 @@
 use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
 
-use crate::api::{ElementType, ExecutionProviders, KernelContext, KernelInfo, OutputValue};
+use crate::api::{ElementType, ExecutionProviders, KernelContext, KernelInfo};
 use crate::bindings::{
     size_t, ONNXTensorElementDataType, OrtApi, OrtCustomOp, OrtCustomOpInputOutputCharacteristic,
     OrtKernelContext, OrtKernelInfo,
 };
 
-use ndarray::{ArrayD, ArrayViewD, ArrayViewMutD};
-
-#[derive(Debug)]
-pub struct Outputs<'s> {
-    outputs: Vec<OutputValue<'s>>,
-}
-
-impl<'s> Outputs<'s> {
-    pub fn into_array<T1>(self, shape1: &'s [usize]) -> ArrayViewMutD<'s, T1> {
-        let mut it = self.outputs.into_iter();
-        it.next()
-            .expect("Too few inputs.")
-            .get_tensor_data_mut::<T1>(shape1)
-            .expect("Loading input data of given type failed.")
-    }
-    pub fn into_2_arrays<T1, T2>(
-        self,
-        shape1: &'s [usize],
-        shape2: &'s [usize],
-    ) -> (ArrayViewMutD<'s, T1>, ArrayViewMutD<'s, T2>) {
-        let mut it = self.outputs.into_iter();
-        (
-            it.next()
-                .expect("Too few inputs.")
-                .get_tensor_data_mut::<T1>(shape1)
-                .expect("Loading input data of given type failed."),
-            it.next()
-                .expect("Too few inputs.")
-                .get_tensor_data_mut::<T2>(shape2)
-                .expect("Loading input data of given type failed."),
-        )
-    }
-}
+use ndarray::{ArrayD, ArrayViewD};
 
 pub trait Inputs<'s> {
     const INPUT_TYPES: &'static [ElementType];
@@ -97,13 +65,57 @@ where
     }
 }
 
+pub trait Outputs<'s> {
+    const OUTPUT_TYPES: &'static [ElementType];
+    fn write_to_ort(self, ctx: &KernelContext<'s>);
+}
+
+trait Output<'s> {
+    const OUTPUT_TYPE: ElementType;
+
+    fn write_to_ort(self, ctx: &KernelContext<'s>, idx: u64);
+}
+
+impl<'s, A> Outputs<'s> for (A,)
+where
+    A: Output<'s>,
+{
+    const OUTPUT_TYPES: &'static [ElementType] = &[<A as Output>::OUTPUT_TYPE];
+    fn write_to_ort(self, ctx: &KernelContext<'s>) {
+        self.0.write_to_ort(ctx, 0);
+    }
+}
+
+impl<'s> Output<'s> for ArrayD<f32> {
+    const OUTPUT_TYPE: ElementType = ElementType::F32;
+
+    fn write_to_ort(self, ctx: &KernelContext<'s>, idx: u64) {
+        let val = unsafe { ctx.get_output_value(idx) };
+        let shape = self.shape();
+        val.get_tensor_data_mut::<f32>(shape)
+            .expect("Loading output data of given type failed.")
+            .assign(&self);
+    }
+}
+
+impl<'s> Output<'s> for ArrayD<i64> {
+    const OUTPUT_TYPE: ElementType = ElementType::I64;
+
+    fn write_to_ort(self, ctx: &KernelContext<'s>, idx: u64) {
+        let val = unsafe { ctx.get_output_value(idx) };
+        let shape = self.shape();
+        val.get_tensor_data_mut::<i64>(shape)
+            .expect("Loading output data of given type failed.")
+            .assign(&self);
+    }
+}
+
 pub trait CustomOp {
     const VERSION: u32;
     const NAME: &'static str;
 
-    const OUTPUT_TYPES: &'static [ElementType];
-
     type OpInputs<'s>: Inputs<'s>;
+    type OpOutputs<'s>: Outputs<'s>;
 
     const EXECUTION_PROVIDER: ExecutionProviders = ExecutionProviders::Cpu;
 
@@ -112,8 +124,7 @@ pub trait CustomOp {
         &self,
         context: &KernelContext<'s>,
         inputs: Self::OpInputs<'s>,
-        outputs: Outputs,
-    );
+    ) -> Self::OpOutputs<'s>;
 }
 
 struct WrappedKernel<T> {
@@ -147,16 +158,18 @@ where
         <<T as CustomOp>::OpInputs<'s> as Inputs<'s>>::INPUT_TYPES.len() as _
     }
 
-    extern "C" fn get_output_type<T: CustomOp>(
+    extern "C" fn get_output_type<'s, T: CustomOp>(
         _op: *const OrtCustomOp,
         index: size_t,
     ) -> ONNXTensorElementDataType {
-        T::OUTPUT_TYPES[index as usize].to_ort_encoding()
+        <<T as CustomOp>::OpOutputs<'s> as Outputs<'s>>::OUTPUT_TYPES[index as usize]
+            .to_ort_encoding()
     }
 
-    extern "C" fn get_output_type_count<T: CustomOp>(_op: *const OrtCustomOp) -> size_t {
-        T::OUTPUT_TYPES.len() as _
+    extern "C" fn get_output_type_count<'s, T: CustomOp>(_op: *const OrtCustomOp) -> size_t {
+        <<T as CustomOp>::OpOutputs<'s> as Outputs<'s>>::OUTPUT_TYPES.len() as _
     }
+
     unsafe extern "C" fn create_kernel<T: CustomOp>(
         _ort_op: *const OrtCustomOp,
         ort_api: *const OrtApi,
@@ -180,16 +193,9 @@ where
         let api = &wrapped_kernel.api;
         let context = KernelContext::from_raw(api, context.as_mut::<'s>().unwrap());
 
-        let n_outputs = context.get_output_count().unwrap();
-        let outputs = {
-            let mut outputs = vec![];
-            for n in 0..n_outputs {
-                outputs.push(context.get_output_value(n))
-            }
-            outputs
-        };
-        let my_inputs = <T::OpInputs<'s> as Inputs>::from_ort(&context);
-        kernel.kernel_compute(&context, my_inputs, Outputs { outputs });
+        let inputs = <T::OpInputs<'s> as Inputs>::from_ort(&context);
+        let outputs = kernel.kernel_compute(&context, inputs);
+        outputs.write_to_ort(&context);
     }
 
     unsafe extern "C" fn kernel_destroy<T: CustomOp>(op_kernel: *mut c_void) {

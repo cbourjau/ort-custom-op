@@ -79,7 +79,7 @@ def shared_lib() -> Path:
 
 
 def setup_session(shared_lib: Path, model) -> onnxrt.InferenceSession:
-    onnxrt.set_default_logger_severity(0)
+    onnxrt.set_default_logger_severity(3)
     so = onnxrt.SessionOptions()
     so.register_custom_ops_library(str(shared_lib))
 
