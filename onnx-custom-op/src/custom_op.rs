@@ -20,16 +20,33 @@ trait Input<'s> {
     fn from_ort(ctx: &KernelContext<'s>, idx: u64) -> Self;
 }
 
-impl<'s> Input<'s> for ArrayViewD<'s, f32> {
-    const INPUT_TYPE: ElementType = ElementType::F32;
+macro_rules! impl_input_non_string {
+    ($ty:ty, $variant:tt) => {
+        impl<'s> Input<'s> for ArrayViewD<'s, $ty> {
+            const INPUT_TYPE: ElementType = ElementType::$variant;
 
-    fn from_ort(ctx: &KernelContext<'s>, idx: u64) -> Self {
-        ctx.get_input_value(idx)
-            .unwrap()
-            .get_tensor_data::<f32>()
-            .expect("Loading input data of given type failed.")
-    }
+            fn from_ort(ctx: &KernelContext<'s>, idx: u64) -> Self {
+                ctx.get_input_value(idx)
+                    .unwrap()
+                    .get_tensor_data::<$ty>()
+                    .expect("Loading input data of given type failed.")
+            }
+        }
+    };
 }
+
+impl_input_non_string!(bool, Bool);
+
+impl_input_non_string!(f32, F32);
+impl_input_non_string!(f64, F64);
+
+impl_input_non_string!(i32, I32);
+impl_input_non_string!(i64, I64);
+
+impl_input_non_string!(u8, U8);
+impl_input_non_string!(u16, U16);
+impl_input_non_string!(u32, U32);
+impl_input_non_string!(u64, U64);
 
 impl<'s> Input<'s> for ArrayD<String> {
     const INPUT_TYPE: ElementType = ElementType::String;
@@ -42,28 +59,28 @@ impl<'s> Input<'s> for ArrayD<String> {
     }
 }
 
-impl<'s, A> Inputs<'s> for (A,)
-where
-    A: Input<'s>,
-{
-    const INPUT_TYPES: &'static [ElementType] = &[<A as Input>::INPUT_TYPE];
-    fn from_ort(ctx: &KernelContext<'s>) -> Self {
-        (A::from_ort(ctx, 0),)
-    }
-}
+macro_rules! impl_inputs {
+    ($($idx:literal),+; $($param:tt),+  ) => {
+        impl<'s, $($param,)*> Inputs<'s> for ($($param,)*)
+        where
+            $($param : Input<'s>,)*
+        {
+            const INPUT_TYPES: &'static [ElementType] = &[$(<$param as Input>::INPUT_TYPE),*];
+            fn from_ort(ctx: &KernelContext<'s>) -> Self {
 
-impl<'s, A, B> Inputs<'s> for (A, B)
-where
-    A: Input<'s>,
-    B: Input<'s>,
-{
-    const INPUT_TYPES: &'static [ElementType] =
-        &[<A as Input>::INPUT_TYPE, <B as Input>::INPUT_TYPE];
-
-    fn from_ort(ctx: &KernelContext<'s>) -> Self {
-        (A::from_ort(ctx, 0), B::from_ort(ctx, 1))
-    }
+                (
+                    $($param::from_ort(ctx, $idx), )*
+                )
+            }
+        }
+    };
 }
+impl_inputs! {0; A}
+impl_inputs! {0, 1; A, B}
+impl_inputs! {0, 1, 2; A, B, C}
+impl_inputs! {0, 1, 2, 3; A, B, C, D}
+impl_inputs! {0, 1, 2, 3, 4; A, B, C, D, E}
+impl_inputs! {0, 1, 2, 3, 4, 5; A, B, C, D, E, F}
 
 pub trait Outputs<'s> {
     const OUTPUT_TYPES: &'static [ElementType];
