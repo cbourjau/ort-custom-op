@@ -120,11 +120,7 @@ pub trait CustomOp {
     const EXECUTION_PROVIDER: ExecutionProviders = ExecutionProviders::Cpu;
 
     fn kernel_create(info: &KernelInfo) -> Self;
-    fn kernel_compute<'s>(
-        &self,
-        context: &KernelContext<'s>,
-        inputs: Self::OpInputs<'s>,
-    ) -> Self::OpOutputs<'s>;
+    fn kernel_compute<'s>(&self, inputs: Self::OpInputs<'s>) -> Self::OpOutputs<'s>;
 }
 
 struct WrappedKernel<T> {
@@ -194,7 +190,7 @@ where
         let context = KernelContext::from_raw(api, context.as_mut::<'s>().unwrap());
 
         let inputs = <T::OpInputs<'s> as Inputs>::from_ort(&context);
-        let outputs = kernel.kernel_compute(&context, inputs);
+        let outputs = kernel.kernel_compute(inputs);
         outputs.write_to_ort(&context);
     }
 

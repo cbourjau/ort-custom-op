@@ -41,11 +41,7 @@ impl CustomOp for CustomAdd {
         CustomAdd
     }
 
-    fn kernel_compute<'s>(
-        &self,
-        _context: &KernelContext<'s>,
-        (array_x, array_y): Self::OpInputs<'s>,
-    ) -> Self::OpOutputs<'s> {
+    fn kernel_compute<'s>(&self, (array_x, array_y): Self::OpInputs<'s>) -> Self::OpOutputs<'s> {
         (&array_x + &array_y,)
     }
 }
@@ -68,11 +64,7 @@ impl CustomOp for ParseDateTime {
         Self { fmt }
     }
 
-    fn kernel_compute<'s>(
-        &self,
-        _context: &KernelContext<'s>,
-        (array_in,): (ArrayD<String>,),
-    ) -> Self::OpOutputs<'s> {
+    fn kernel_compute<'s>(&self, (array_in,): (ArrayD<String>,)) -> Self::OpOutputs<'s> {
         let out = array_in.mapv(|s| {
             NaiveDateTime::parse_from_str(s.as_str(), self.fmt.as_str())
                 .unwrap()
