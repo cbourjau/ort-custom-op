@@ -21,7 +21,7 @@ pub extern "C" fn RegisterCustomOps(
 
     match status {
         Ok(_) => std::ptr::null_mut(),
-        Err(status) => status,
+        Err(status) => status.into_pointer(),
     }
 }
 

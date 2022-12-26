@@ -9,4 +9,5 @@ edition = "2021"
 bindgen = "0.60.1"
 
 [dependencies]
+anyhow = "1.0.68"
 ndarray = "0.15.6"

@@ -1,10 +1,12 @@
 use crate::*;
 
 use crate::bindings::*;
+use crate::error::ErrorStatusPtr;
 
-use ndarray::{Array, ArrayView, ArrayViewMut, IxDyn};
+use anyhow::Result;
+use ndarray::{Array, ArrayView, ArrayViewMut, ArrayViewMutD, IxDyn};
 
-type Result<T> = std::result::Result<T, OrtStatusPtr>;
+// type Result<T> = std::result::Result<T, OrtStatusPtr>;
 
 #[derive(Debug)]
 pub struct KernelContext<'s> {
@@ -44,9 +46,82 @@ struct TensorTypeAndShapeInfo<'s> {
     info: &'s mut OrtTensorTypeAndShapeInfo,
 }
 
-fn create_error_status(api: &OrtApi, code: u32, msg: &str) -> *mut OrtStatus {
-    let c_char_ptr = str_to_c_char_ptr(msg);
-    unsafe { api.CreateStatus.unwrap()(code, c_char_ptr) }
+impl OrtApi {
+    /// Get `OrtValue` for input with index `idx`.
+    fn get_input<'s>(&'s self, ctx: &'s mut OrtKernelContext, idx: u64) -> Result<*const OrtValue> {
+        let fun = self.KernelContext_GetInput.unwrap();
+
+        let mut value: *const OrtValue = std::ptr::null();
+        status_to_result(unsafe { fun(ctx, idx, &mut value) }, self)?;
+        if value.is_null() {
+            anyhow::bail!("failed to get input")
+        };
+
+        Ok(value)
+    }
+
+    /// Get `OrtValue` for output with index `idx`.
+    unsafe fn get_output<'s>(
+        &self,
+        ctx: &'s mut OrtKernelContext,
+        idx: u64,
+        shape: &[i64],
+    ) -> Result<*mut OrtValue> {
+        let fun = self.KernelContext_GetOutput.unwrap();
+
+        let mut value: *mut OrtValue = std::ptr::null_mut();
+        status_to_result(
+            unsafe { fun(ctx, idx, shape.as_ptr(), shape.len() as u64, &mut value) },
+            self,
+        )?;
+        if value.is_null() {
+            anyhow::bail!("failed to get input")
+        };
+
+        Ok(value)
+    }
+
+    fn get_tensor_data_mut<T>(
+        &self,
+        mut value: OrtValue,
+        shape: &[usize],
+    ) -> Result<ArrayViewMutD<T>> {
+        // This needs a refactor! The shape should be passed here,
+        // rather than when creating the `Value`.
+        let element_count = {
+            let info = self.get_tensor_type_and_shape(&value)?;
+            self.get_tensor_shape_element_count(&info)?
+        };
+
+        let fun = self.GetTensorMutableData.unwrap();
+        let mut ptr: *mut _ = std::ptr::null_mut();
+        let data = unsafe {
+            fun(&mut value, &mut ptr);
+            std::slice::from_raw_parts_mut(ptr as *mut T, element_count as usize)
+        };
+
+        let a = ArrayViewMut::from(data).into_shape(shape).unwrap();
+        Ok(a)
+    }
+
+    fn get_tensor_type_and_shape<'s>(
+        &self,
+        value: &'s OrtValue,
+    ) -> Result<&'s OrtTensorTypeAndShapeInfo> {
+        let mut info: *mut OrtTensorTypeAndShapeInfo = std::ptr::null_mut();
+        let fun = self.GetTensorTypeAndShape.unwrap();
+        unsafe {
+            fun(value, &mut info);
+            Ok(info.as_ref().unwrap())
+        }
+    }
+
+    fn get_tensor_shape_element_count(&self, info: &OrtTensorTypeAndShapeInfo) -> Result<u64> {
+        let fun = self.GetTensorShapeElementCount.unwrap();
+        let mut element_count = 0;
+        status_to_result(unsafe { fun(info, &mut element_count) }, self)?;
+        Ok(element_count)
+    }
 }
 
 impl<'s> KernelContext<'s> {
@@ -59,15 +134,12 @@ impl<'s> KernelContext<'s> {
 
     pub(crate) fn get_input_value(&self, index: u64) -> Result<Value<'s>> {
         let mut value: *const OrtValue = std::ptr::null();
-        status_to_result(unsafe {
-            self.api.KernelContext_GetInput.unwrap()(self.context, index, &mut value)
-        })?;
+        status_to_result(
+            unsafe { self.api.KernelContext_GetInput.unwrap()(self.context, index, &mut value) },
+            self.api,
+        )?;
         if value.is_null() {
-            status_to_result(create_error_status(
-                self.api,
-                OrtErrorCode_ORT_FAIL,
-                "Failed to get input",
-            ))?;
+            anyhow::bail!("failed to get input")
         }
         // Unclear how one could do this without changing mutability here!
         let value = unsafe { &mut *(value as *mut OrtValue) };
@@ -89,15 +161,18 @@ impl<'s> KernelContext<'s> {
         let value = unsafe {
             let mut value: *mut OrtValue = std::ptr::null_mut();
             let shape: Vec<_> = shape.iter().map(|el| *el as i64).collect();
-            status_to_result(self.api.KernelContext_GetOutput.unwrap()(
-                self.context,
-                idx,
-                shape.as_ptr(),
-                shape.len() as u64,
-                &mut value,
-            ))?;
+            status_to_result(
+                self.api.KernelContext_GetOutput.unwrap()(
+                    self.context,
+                    idx,
+                    shape.as_ptr(),
+                    shape.len() as u64,
+                    &mut value,
+                ),
+                self.api,
+            )?;
             if value.is_null() {
-                return Err(create_error_status(self.api, 0, "No value found"));
+                anyhow::bail!("value at index {} is null", idx);
             }
             Value {
                 value: &mut *value,
@@ -127,13 +202,13 @@ impl<'s> KernelInfo<'s> {
     }
 
     pub fn get_attribute_string(&self, name: &str) -> Result<String> {
-        let name = CString::new(name).unwrap();
+        let name = CString::new(name)?;
         // Get size first
         let mut size = {
             let mut size = 0;
             // let buf: *mut _ = std::ptr::null_mut();
             unsafe {
-                status_to_result_dbg(
+                status_to_result(
                     self.api.KernelInfoGetAttribute_string.unwrap()(
                         self.info,
                         name.as_ptr(),
@@ -148,18 +223,17 @@ impl<'s> KernelInfo<'s> {
 
         let mut buf = vec![0u8; size as _];
         unsafe {
-            status_to_result(self.api.KernelInfoGetAttribute_string.unwrap()(
-                self.info,
-                name.as_ptr(),
-                buf.as_mut_ptr() as *mut i8,
-                &mut size,
-            ))
-            .unwrap()
+            status_to_result(
+                self.api.KernelInfoGetAttribute_string.unwrap()(
+                    self.info,
+                    name.as_ptr(),
+                    buf.as_mut_ptr() as *mut i8,
+                    &mut size,
+                ),
+                self.api,
+            )?
         };
-        Ok(CString::from_vec_with_nul(buf)
-            .unwrap()
-            .into_string()
-            .unwrap())
+        Ok(CString::from_vec_with_nul(buf)?.into_string()?)
     }
 
     // Not implemented for string?
@@ -217,7 +291,7 @@ impl<'s> Value<'s> {
                     let (this, rest) = buf.split_at(end - start);
                     *buf = rest;
                     // The following allocation could be avoided
-                    Some(String::from_utf8(this.to_vec()).unwrap())
+                    String::from_utf8(this.to_vec()).ok()
                 })
                 .collect()
         };
@@ -296,9 +370,10 @@ impl<'s> TensorTypeAndShapeInfo<'s> {
 
     fn get_tensor_shape_element_count(&self) -> Result<u64> {
         let mut element_count = 0;
-        status_to_result(unsafe {
-            self.api.GetTensorShapeElementCount.unwrap()(self.info, &mut element_count)
-        })?;
+        status_to_result(
+            unsafe { self.api.GetTensorShapeElementCount.unwrap()(self.info, &mut element_count) },
+            self.api,
+        )?;
         Ok(element_count)
     }
 
@@ -348,7 +423,7 @@ pub fn create_custom_op_domain(
     api_base: &mut OrtApiBase,
     domain: &str,
     ops: &[&'static OrtCustomOp],
-) -> Result<()> {
+) -> Result<(), ErrorStatusPtr> {
     let api = unsafe { api_base.GetApi.unwrap()(12).as_ref().unwrap() };
 
     let fun_ptr = api.CreateCustomOpDomain.unwrap();
@@ -358,8 +433,11 @@ pub fn create_custom_op_domain(
     let c_op_domain = str_to_c_char_ptr(domain);
     let domain = unsafe {
         // According to docs: "Must be freed with OrtApi::ReleaseCustomOpDomain"
-        status_to_result(fun_ptr(c_op_domain, &mut domain_ptr))?;
-        status_to_result(api.AddCustomOpDomain.unwrap()(session_options, domain_ptr))?;
+        status_to_result(fun_ptr(c_op_domain, &mut domain_ptr), api)?;
+        status_to_result(
+            api.AddCustomOpDomain.unwrap()(session_options, domain_ptr),
+            api,
+        )?;
         domain_ptr.as_mut().unwrap()
     };
     for op in ops {
@@ -368,13 +446,13 @@ pub fn create_custom_op_domain(
     Ok(())
 }
 
-fn add_op_to_domain(
-    api: &OrtApi,
+fn add_op_to_domain<'s>(
+    api: &'s OrtApi,
     domain: &mut OrtCustomOpDomain,
     op: &'static OrtCustomOp,
-) -> Result<()> {
+) -> Result<(), ErrorStatusPtr> {
     let fun_ptr = api.CustomOpDomain_Add.unwrap();
-    status_to_result(unsafe { fun_ptr(domain, op) })?;
+    status_to_result(unsafe { fun_ptr(domain, op) }, api)?;
     Ok(())
 }
 
@@ -385,21 +463,10 @@ fn str_to_c_char_ptr(s: &str) -> *const c_char {
 /// Wraps a status pointer into a result.
 ///
 ///A null pointer is mapped to the `Ok(())`.
-fn status_to_result(ptr: OrtStatusPtr) -> Result<()> {
+fn status_to_result(ptr: OrtStatusPtr, api: &OrtApi) -> Result<(), ErrorStatusPtr> {
     if ptr.is_null() {
         Ok(())
     } else {
-        Err(ptr)
-    }
-}
-
-// Leaky way to just print the error message.
-fn status_to_result_dbg(ptr: OrtStatusPtr, _api: &OrtApi) -> Result<()> {
-    if ptr.is_null() {
-        Ok(())
-    } else {
-        // let cstr_ptr = unsafe { api.GetErrorMessage.unwrap()(ptr) };
-        // unsafe { dbg!(CString::from_raw(cstr_ptr as *mut _)) };
-        Err(ptr)
+        Err(ErrorStatusPtr::new(ptr, api).into())
     }
 }
