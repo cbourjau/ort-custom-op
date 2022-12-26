@@ -9,8 +9,7 @@ type Result<T> = std::result::Result<T, OrtStatusPtr>;
 #[derive(Debug)]
 pub struct KernelContext<'s> {
     api: &'static OrtApi,
-    context: *mut OrtKernelContext,
-    marker: std::marker::PhantomData<&'s [u8]>,
+    context: &'s mut OrtKernelContext,
 }
 
 #[derive(Debug)]
@@ -24,13 +23,6 @@ pub struct KernelInfo<'s> {
 pub struct Value<'s> {
     value: &'s mut OrtValue,
     api: &'static OrtApi,
-}
-
-#[derive(Debug)]
-pub struct OutputValue<'s> {
-    api: &'static OrtApi,
-    context: &'s mut OrtKernelContext,
-    index: u64,
 }
 
 pub struct CustomOpDomain<'s> {
@@ -71,8 +63,7 @@ impl<'s> KernelContext<'s> {
     pub(crate) fn from_raw(api: &'static OrtApi, context: *mut OrtKernelContext) -> Self {
         Self {
             api,
-            context,
-            marker: std::marker::PhantomData::<&'s [u8]>,
+            context: unsafe { context.as_mut().unwrap() },
         }
     }
 
@@ -96,34 +87,47 @@ impl<'s> KernelContext<'s> {
         })
     }
 
-    /// Get an OutputValue.
+    /// Get a writable output tensor.
     ///
-    /// This is unsafe because each output value has a mutable
-    /// reference to the `OrtKernelContext`.
-    pub(crate) unsafe fn get_output_value(&'s self, index: u64) -> OutputValue<'s> {
-        // TODO: Should take &mut self!!!!!!
-        OutputValue {
-            api: self.api,
-            context: &mut *self.context,
-            index,
-        }
-    }
+    /// This is unsafe because it allows for creating multiple mutable
+    /// references to the same tensor.
+    pub unsafe fn get_tensor_data_mut<T>(
+        &mut self,
+        idx: u64,
+        shape: &[usize],
+    ) -> Result<ArrayViewMut<T, IxDyn>> {
+        let value = unsafe {
+            let mut value: *mut OrtValue = std::ptr::null_mut();
+            let shape: Vec<_> = shape.iter().map(|el| *el as i64).collect();
+            status_to_result(self.api.KernelContext_GetOutput.unwrap()(
+                self.context,
+                idx,
+                shape.as_ptr(),
+                shape.len() as u64,
+                &mut value,
+            ))?;
+            if value.is_null() {
+                return Err(create_error_status(self.api, 0, "No value found"));
+            }
+            Value {
+                value: &mut *value,
+                api: self.api,
+            }
+        };
+        // This needs a refactor! The shape should be passed here,
+        // rather than when creating the `Value`.
+        let element_count = value
+            .get_tensor_type_and_shape()?
+            .get_tensor_shape_element_count()?;
 
-    pub fn get_output_count(&self) -> Result<u64> {
-        let mut val = 0;
-        status_to_result(unsafe {
-            self.api.KernelContext_GetOutputCount.unwrap()(self.context, &mut val)
-        })?;
-        Ok(val)
-    }
+        let mut ptr: *mut _ = std::ptr::null_mut();
+        let data = unsafe {
+            self.api.GetTensorMutableData.unwrap()(value.value, &mut ptr);
+            std::slice::from_raw_parts_mut(ptr as *mut T, element_count as usize)
+        };
 
-    #[allow(unused)]
-    pub fn get_input_count(&self) -> Result<u64> {
-        let mut val = 0;
-        status_to_result(unsafe {
-            self.api.KernelContext_GetInputCount.unwrap()(self.context, &mut val)
-        })?;
-        Ok(val)
+        let a = ArrayViewMut::from(data).into_shape(shape).unwrap();
+        Ok(a)
     }
 }
 
@@ -332,43 +336,6 @@ impl<'s> CustomOpDomain<'s> {
         let fun_ptr = self.api.CustomOpDomain_Add.unwrap();
         status_to_result(unsafe { fun_ptr(self.custom_op_domain, op) })?;
         Ok(())
-    }
-}
-
-impl<'s> OutputValue<'s> {
-    pub fn get_tensor_data_mut<T>(self, shape: &[usize]) -> Result<ArrayViewMut<T, IxDyn>> {
-        let value = unsafe {
-            let mut value: *mut OrtValue = std::ptr::null_mut();
-            let shape: Vec<_> = shape.iter().map(|el| *el as i64).collect();
-            status_to_result(self.api.KernelContext_GetOutput.unwrap()(
-                self.context,
-                self.index,
-                shape.as_ptr(),
-                shape.len() as u64,
-                &mut value,
-            ))?;
-            if value.is_null() {
-                return Err(create_error_status(self.api, 0, "No value found"));
-            }
-            Value {
-                value: &mut *value,
-                api: self.api,
-            }
-        };
-        // This needs a refactor! The shape should be passed here,
-        // rather than when creating the `Value`.
-        let element_count = value
-            .get_tensor_type_and_shape()?
-            .get_tensor_shape_element_count()?;
-
-        let mut ptr: *mut _ = std::ptr::null_mut();
-        let data = unsafe {
-            self.api.GetTensorMutableData.unwrap()(value.value, &mut ptr);
-            std::slice::from_raw_parts_mut(ptr as *mut T, element_count as usize)
-        };
-
-        let a = ArrayViewMut::from(data).into_shape(shape).unwrap();
-        Ok(a)
     }
 }
 

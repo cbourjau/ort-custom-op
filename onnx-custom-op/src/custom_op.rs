@@ -82,7 +82,7 @@ impl_inputs! {0, 1, 2, 3, 4, 5; A, B, C, D, E, F}
 trait Output<'s> {
     const OUTPUT_TYPE: ElementType;
 
-    fn write_to_ort(self, ctx: &KernelContext<'s>, idx: u64);
+    fn write_to_ort(self, ctx: &mut KernelContext<'s>, idx: u64);
 }
 
 macro_rules! impl_output_non_string {
@@ -90,12 +90,9 @@ macro_rules! impl_output_non_string {
         impl<'s> Output<'s> for ArrayD<$ty> {
             const OUTPUT_TYPE: ElementType = ElementType::$variant;
 
-            fn write_to_ort(self, ctx: &KernelContext<'s>, idx: u64) {
-                let val = unsafe { ctx.get_output_value(idx) };
-                let shape = self.shape();
-                val.get_tensor_data_mut::<$ty>(shape)
-                    .expect("Loading output data of given type failed.")
-                    .assign(&self);
+            fn write_to_ort(self, ctx: &mut KernelContext<'s>, idx: u64) {
+                let mut val = unsafe { ctx.get_tensor_data_mut(idx, self.shape()) }.unwrap();
+                val.assign(&self);
             }
         }
     };
@@ -115,7 +112,7 @@ impl_output_non_string!(u8, U8);
 
 pub trait Outputs<'s> {
     const OUTPUT_TYPES: &'static [ElementType];
-    fn write_to_ort(self, ctx: &KernelContext<'s>);
+    fn write_to_ort(self, ctx: &mut KernelContext<'s>);
 }
 
 macro_rules! impl_outputs {
@@ -125,7 +122,7 @@ macro_rules! impl_outputs {
             $($param : Output<'s>,)*
         {
             const OUTPUT_TYPES: &'static [ElementType] = &[$(<$param as Output>::OUTPUT_TYPE),*];
-            fn write_to_ort(self, ctx: &KernelContext<'s>) {
+            fn write_to_ort(self, ctx: &mut KernelContext<'s>) {
                 $(self.$idx.write_to_ort(ctx, 0);)*
             }
         }
@@ -214,11 +211,11 @@ where
         let wrapped_kernel: &mut WrappedKernel<T> = &mut *(op_kernel as *mut _);
         let kernel = &wrapped_kernel.user_kernel;
         let api = &wrapped_kernel.api;
-        let context = KernelContext::from_raw(api, context.as_mut::<'s>().unwrap());
+        let mut context = KernelContext::from_raw(api, context.as_mut::<'s>().unwrap());
 
         let inputs = <T::OpInputs<'s> as Inputs>::from_ort(&context);
         let outputs = kernel.kernel_compute(inputs);
-        outputs.write_to_ort(&context);
+        outputs.write_to_ort(&mut context);
     }
 
     unsafe extern "C" fn kernel_destroy<T: CustomOp>(op_kernel: *mut c_void) {
