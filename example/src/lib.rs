@@ -12,14 +12,13 @@ pub extern "C" fn RegisterCustomOps(
     options: &mut OrtSessionOptions,
     api_base: &mut OrtApiBase,
 ) -> *mut OrtStatus {
-    let mut options = SessionOptions::from_ort(api_base, options);
+    let status = create_custom_op_domain(
+        options,
+        api_base,
+        "my.domain",
+        &[&OP_CUSTOM_ADD, &OP_PARSE_DATETIME],
+    );
 
-    let status = options
-        .create_custom_op_domain("my.domain")
-        .and_then(|mut domain| {
-            domain.add_op_to_domain(&OP_CUSTOM_ADD)?;
-            domain.add_op_to_domain(&OP_PARSE_DATETIME)
-        });
     match status {
         Ok(_) => std::ptr::null_mut(),
         Err(status) => status,

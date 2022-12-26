@@ -25,11 +25,6 @@ pub struct Value<'s> {
     api: &'static OrtApi,
 }
 
-pub struct CustomOpDomain<'s> {
-    api: &'static OrtApi,
-    custom_op_domain: &'s mut OrtCustomOpDomain,
-}
-
 pub enum ElementType {
     Bool,
     F32,
@@ -41,11 +36,6 @@ pub enum ElementType {
     U32,
     U64,
     String,
-}
-
-pub struct SessionOptions<'s> {
-    api: &'static OrtApi,
-    session_options: &'s mut OrtSessionOptions,
 }
 
 #[derive(Debug)]
@@ -331,14 +321,6 @@ impl<'s> Drop for Value<'s> {
     }
 }
 
-impl<'s> CustomOpDomain<'s> {
-    pub fn add_op_to_domain(&mut self, op: &'static OrtCustomOp) -> Result<()> {
-        let fun_ptr = self.api.CustomOpDomain_Add.unwrap();
-        status_to_result(unsafe { fun_ptr(self.custom_op_domain, op) })?;
-        Ok(())
-    }
-}
-
 impl ElementType {
     pub fn to_ort_encoding(&self) -> u32 {
         match self {
@@ -360,36 +342,40 @@ impl ElementType {
     }
 }
 
-impl<'s> SessionOptions<'s> {
-    pub fn from_ort(api_base: &mut OrtApiBase, options: &'s mut OrtSessionOptions) -> Self {
-        // Version 12 is the latest one supported by the installed
-        // onnxruntime. I should probably downgrade the c api file.
-        let api = unsafe { api_base.GetApi.unwrap()(12) };
-        Self {
-            api: unsafe { &*api },
-            session_options: options,
-        }
-    }
+/// Create a new custom domain with the operators `ops`.
+pub fn create_custom_op_domain(
+    session_options: &mut OrtSessionOptions,
+    api_base: &mut OrtApiBase,
+    domain: &str,
+    ops: &[&'static OrtCustomOp],
+) -> Result<()> {
+    let api = unsafe { api_base.GetApi.unwrap()(12).as_ref().unwrap() };
 
-    pub fn create_custom_op_domain(&mut self, domain: &str) -> Result<CustomOpDomain> {
-        let fun_ptr = self.api.CreateCustomOpDomain.unwrap();
-        let mut domain_ptr: *mut OrtCustomOpDomain = std::ptr::null_mut();
+    let fun_ptr = api.CreateCustomOpDomain.unwrap();
+    let mut domain_ptr: *mut OrtCustomOpDomain = std::ptr::null_mut();
 
-        // Copies and leaks!
-        let c_op_domain = str_to_c_char_ptr(domain);
-        unsafe {
-            // According to docs: "Must be freed with OrtApi::ReleaseCustomOpDomain"
-            status_to_result(fun_ptr(c_op_domain, &mut domain_ptr))?;
-            status_to_result(self.api.AddCustomOpDomain.unwrap()(
-                self.session_options,
-                domain_ptr,
-            ))?;
-            Ok(CustomOpDomain {
-                api: self.api,
-                custom_op_domain: &mut *domain_ptr,
-            })
-        }
+    // Copies and leaks!
+    let c_op_domain = str_to_c_char_ptr(domain);
+    let domain = unsafe {
+        // According to docs: "Must be freed with OrtApi::ReleaseCustomOpDomain"
+        status_to_result(fun_ptr(c_op_domain, &mut domain_ptr))?;
+        status_to_result(api.AddCustomOpDomain.unwrap()(session_options, domain_ptr))?;
+        domain_ptr.as_mut().unwrap()
+    };
+    for op in ops {
+        add_op_to_domain(api, domain, op)?;
     }
+    Ok(())
+}
+
+fn add_op_to_domain(
+    api: &OrtApi,
+    domain: &mut OrtCustomOpDomain,
+    op: &'static OrtCustomOp,
+) -> Result<()> {
+    let fun_ptr = api.CustomOpDomain_Add.unwrap();
+    status_to_result(unsafe { fun_ptr(domain, op) })?;
+    Ok(())
 }
 
 fn str_to_c_char_ptr(s: &str) -> *const c_char {
