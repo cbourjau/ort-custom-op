@@ -9,11 +9,6 @@ use crate::bindings::{
 
 use ndarray::{ArrayD, ArrayViewD};
 
-pub trait Inputs<'s> {
-    const INPUT_TYPES: &'static [ElementType];
-    fn from_ort(ctx: &KernelContext<'s>) -> Self;
-}
-
 trait Input<'s> {
     const INPUT_TYPE: ElementType;
 
@@ -36,17 +31,14 @@ macro_rules! impl_input_non_string {
 }
 
 impl_input_non_string!(bool, Bool);
-
 impl_input_non_string!(f32, F32);
 impl_input_non_string!(f64, F64);
-
 impl_input_non_string!(i32, I32);
 impl_input_non_string!(i64, I64);
-
-impl_input_non_string!(u8, U8);
 impl_input_non_string!(u16, U16);
 impl_input_non_string!(u32, U32);
 impl_input_non_string!(u64, U64);
+impl_input_non_string!(u8, U8);
 
 impl<'s> Input<'s> for ArrayD<String> {
     const INPUT_TYPE: ElementType = ElementType::String;
@@ -57,6 +49,11 @@ impl<'s> Input<'s> for ArrayD<String> {
             .get_tensor_data_str()
             .expect("Loading input data of given type failed.")
     }
+}
+
+pub trait Inputs<'s> {
+    const INPUT_TYPES: &'static [ElementType];
+    fn from_ort(ctx: &KernelContext<'s>) -> Self;
 }
 
 macro_rules! impl_inputs {
@@ -82,50 +79,65 @@ impl_inputs! {0, 1, 2, 3; A, B, C, D}
 impl_inputs! {0, 1, 2, 3, 4; A, B, C, D, E}
 impl_inputs! {0, 1, 2, 3, 4, 5; A, B, C, D, E, F}
 
-pub trait Outputs<'s> {
-    const OUTPUT_TYPES: &'static [ElementType];
-    fn write_to_ort(self, ctx: &KernelContext<'s>);
-}
-
 trait Output<'s> {
     const OUTPUT_TYPE: ElementType;
 
     fn write_to_ort(self, ctx: &KernelContext<'s>, idx: u64);
 }
 
-impl<'s, A> Outputs<'s> for (A,)
-where
-    A: Output<'s>,
-{
-    const OUTPUT_TYPES: &'static [ElementType] = &[<A as Output>::OUTPUT_TYPE];
-    fn write_to_ort(self, ctx: &KernelContext<'s>) {
-        self.0.write_to_ort(ctx, 0);
-    }
+macro_rules! impl_output_non_string {
+    ($ty:ty, $variant:tt) => {
+        impl<'s> Output<'s> for ArrayD<$ty> {
+            const OUTPUT_TYPE: ElementType = ElementType::$variant;
+
+            fn write_to_ort(self, ctx: &KernelContext<'s>, idx: u64) {
+                let val = unsafe { ctx.get_output_value(idx) };
+                let shape = self.shape();
+                val.get_tensor_data_mut::<$ty>(shape)
+                    .expect("Loading output data of given type failed.")
+                    .assign(&self);
+            }
+        }
+    };
 }
 
-impl<'s> Output<'s> for ArrayD<f32> {
-    const OUTPUT_TYPE: ElementType = ElementType::F32;
+impl_output_non_string!(bool, Bool);
+impl_output_non_string!(f32, F32);
+impl_output_non_string!(f64, F64);
+impl_output_non_string!(i32, I32);
+impl_output_non_string!(i64, I64);
+impl_output_non_string!(u16, U16);
+impl_output_non_string!(u32, U32);
+impl_output_non_string!(u64, U64);
+impl_output_non_string!(u8, U8);
 
-    fn write_to_ort(self, ctx: &KernelContext<'s>, idx: u64) {
-        let val = unsafe { ctx.get_output_value(idx) };
-        let shape = self.shape();
-        val.get_tensor_data_mut::<f32>(shape)
-            .expect("Loading output data of given type failed.")
-            .assign(&self);
-    }
+// TODO: Impl string output
+
+pub trait Outputs<'s> {
+    const OUTPUT_TYPES: &'static [ElementType];
+    fn write_to_ort(self, ctx: &KernelContext<'s>);
 }
 
-impl<'s> Output<'s> for ArrayD<i64> {
-    const OUTPUT_TYPE: ElementType = ElementType::I64;
-
-    fn write_to_ort(self, ctx: &KernelContext<'s>, idx: u64) {
-        let val = unsafe { ctx.get_output_value(idx) };
-        let shape = self.shape();
-        val.get_tensor_data_mut::<i64>(shape)
-            .expect("Loading output data of given type failed.")
-            .assign(&self);
-    }
+macro_rules! impl_outputs {
+    ($($idx:tt),+; $($param:tt),+  ) => {
+        impl<'s, $($param,)*> Outputs<'s> for ($($param,)*)
+        where
+            $($param : Output<'s>,)*
+        {
+            const OUTPUT_TYPES: &'static [ElementType] = &[$(<$param as Output>::OUTPUT_TYPE),*];
+            fn write_to_ort(self, ctx: &KernelContext<'s>) {
+                $(self.$idx.write_to_ort(ctx, 0);)*
+            }
+        }
+    };
 }
+
+impl_outputs! {0; A}
+impl_outputs! {0, 1; A, B}
+impl_outputs! {0, 1, 2; A, B, C}
+impl_outputs! {0, 1, 2, 3; A, B, C, D}
+impl_outputs! {0, 1, 2, 3, 4; A, B, C, D, E}
+impl_outputs! {0, 1, 2, 3, 4, 5; A, B, C, D, E, F}
 
 pub trait CustomOp {
     const VERSION: u32;
