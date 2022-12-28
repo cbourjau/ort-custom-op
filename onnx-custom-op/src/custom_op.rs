@@ -1,7 +1,7 @@
 use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
 
-use crate::api::{ElementType, KernelContext, KernelInfo};
+use crate::api::{ElementType, KernelInfo};
 use crate::bindings::{
     size_t, ONNXTensorElementDataType, OrtApi, OrtCustomOp, OrtCustomOpInputOutputCharacteristic,
     OrtKernelContext, OrtKernelInfo,
@@ -12,7 +12,7 @@ use ndarray::{ArrayD, ArrayViewD};
 trait Input<'s> {
     const INPUT_TYPE: ElementType;
 
-    fn from_ort(ctx: &KernelContext<'s>, idx: u64) -> Self;
+    fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext, idx: u64) -> Self;
 }
 
 macro_rules! impl_input_non_string {
@@ -20,10 +20,8 @@ macro_rules! impl_input_non_string {
         impl<'s> Input<'s> for ArrayViewD<'s, $ty> {
             const INPUT_TYPE: ElementType = ElementType::$variant;
 
-            fn from_ort(ctx: &KernelContext<'s>, idx: u64) -> Self {
-                ctx.get_input_value(idx)
-                    .unwrap()
-                    .get_tensor_data::<$ty>()
+            fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext, idx: u64) -> Self {
+                api.get_input_array::<$ty>(ctx, idx)
                     .expect("Loading input data of given type failed.")
             }
         }
@@ -43,17 +41,15 @@ impl_input_non_string!(u8, U8);
 impl<'s> Input<'s> for ArrayD<String> {
     const INPUT_TYPE: ElementType = ElementType::String;
 
-    fn from_ort(ctx: &KernelContext<'s>, idx: u64) -> Self {
-        ctx.get_input_value(idx)
-            .unwrap()
-            .get_tensor_data_str()
+    fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext, idx: u64) -> Self {
+        api.get_input_array_string(ctx, idx)
             .expect("Loading input data of given type failed.")
     }
 }
 
 pub trait Inputs<'s> {
     const INPUT_TYPES: &'static [ElementType];
-    fn from_ort(ctx: &KernelContext<'s>) -> Self;
+    fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext) -> Self;
 }
 
 macro_rules! impl_inputs {
@@ -63,10 +59,10 @@ macro_rules! impl_inputs {
             $($param : Input<'s>,)*
         {
             const INPUT_TYPES: &'static [ElementType] = &[$(<$param as Input>::INPUT_TYPE),*];
-            fn from_ort(ctx: &KernelContext<'s>) -> Self {
+            fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext) -> Self {
 
                 (
-                    $($param::from_ort(ctx, $idx), )*
+                    $($param::from_ort(api, ctx, $idx), )*
                 )
             }
         }
@@ -79,20 +75,23 @@ impl_inputs! {0, 1, 2, 3; A, B, C, D}
 impl_inputs! {0, 1, 2, 3, 4; A, B, C, D, E}
 impl_inputs! {0, 1, 2, 3, 4, 5; A, B, C, D, E, F}
 
-trait Output<'s> {
+trait Output {
     const OUTPUT_TYPE: ElementType;
 
-    fn write_to_ort(self, ctx: &mut KernelContext<'s>, idx: u64);
+    fn write_to_ort(self, api: &OrtApi, ctx: &mut OrtKernelContext, idx: u64);
 }
 
 macro_rules! impl_output_non_string {
     ($ty:ty, $variant:tt) => {
-        impl<'s> Output<'s> for ArrayD<$ty> {
+        impl<'s> Output for ArrayD<$ty> {
             const OUTPUT_TYPE: ElementType = ElementType::$variant;
 
-            fn write_to_ort(self, ctx: &mut KernelContext<'s>, idx: u64) {
-                let mut val = unsafe { ctx.get_tensor_data_mut(idx, self.shape()) }.unwrap();
-                val.assign(&self);
+            fn write_to_ort(self, api: &OrtApi, ctx: &mut OrtKernelContext, idx: u64) {
+                let shape = self.shape();
+                let shape_i64: Vec<_> = shape.iter().map(|v| *v as i64).collect();
+                let val = unsafe { api.get_output(ctx, idx, &shape_i64) }.unwrap();
+                let mut arr = api.get_tensor_data_mut(val, &shape).unwrap();
+                arr.assign(&self);
             }
         }
     };
@@ -110,20 +109,20 @@ impl_output_non_string!(u8, U8);
 
 // TODO: Impl string output
 
-pub trait Outputs<'s> {
+pub trait Outputs {
     const OUTPUT_TYPES: &'static [ElementType];
-    fn write_to_ort(self, ctx: &mut KernelContext<'s>);
+    fn write_to_ort(self, api: &OrtApi, ctx: &mut OrtKernelContext);
 }
 
 macro_rules! impl_outputs {
     ($($idx:tt),+; $($param:tt),+  ) => {
-        impl<'s, $($param,)*> Outputs<'s> for ($($param,)*)
+        impl<'s, $($param,)*> Outputs for ($($param,)*)
         where
-            $($param : Output<'s>,)*
+            $($param : Output,)*
         {
             const OUTPUT_TYPES: &'static [ElementType] = &[$(<$param as Output>::OUTPUT_TYPE),*];
-            fn write_to_ort(self, ctx: &mut KernelContext<'s>) {
-                $(self.$idx.write_to_ort(ctx, 0);)*
+            fn write_to_ort(self, api: &OrtApi, ctx: &mut OrtKernelContext,) {
+                $(self.$idx.write_to_ort(api, ctx, $idx);)*
             }
         }
     };
@@ -141,10 +140,10 @@ pub trait CustomOp {
     const NAME: &'static str;
 
     type OpInputs<'s>: Inputs<'s>;
-    type OpOutputs<'s>: Outputs<'s>;
+    type OpOutputs: Outputs;
 
     fn kernel_create(info: &KernelInfo) -> Self;
-    fn kernel_compute<'s>(&self, inputs: Self::OpInputs<'s>) -> Self::OpOutputs<'s>;
+    fn kernel_compute(&self, inputs: Self::OpInputs<'_>) -> Self::OpOutputs;
 }
 
 struct WrappedKernel<T> {
@@ -182,12 +181,11 @@ where
         _op: *const OrtCustomOp,
         index: size_t,
     ) -> ONNXTensorElementDataType {
-        <<T as CustomOp>::OpOutputs<'s> as Outputs<'s>>::OUTPUT_TYPES[index as usize]
-            .to_ort_encoding()
+        <<T as CustomOp>::OpOutputs as Outputs>::OUTPUT_TYPES[index as usize].to_ort_encoding()
     }
 
     extern "C" fn get_output_type_count<'s, T: CustomOp>(_op: *const OrtCustomOp) -> size_t {
-        <<T as CustomOp>::OpOutputs<'s> as Outputs<'s>>::OUTPUT_TYPES.len() as _
+        <<T as CustomOp>::OpOutputs as Outputs>::OUTPUT_TYPES.len() as _
     }
 
     unsafe extern "C" fn create_kernel<T: CustomOp>(
@@ -204,18 +202,24 @@ where
 
     unsafe extern "C" fn kernel_compute<'s, T: CustomOp>(
         op_kernel: *mut c_void,
-        context: *mut OrtKernelContext,
+        context_ptr: *mut OrtKernelContext,
     ) where
         <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
     {
         let wrapped_kernel: &mut WrappedKernel<T> = &mut *(op_kernel as *mut _);
         let kernel = &wrapped_kernel.user_kernel;
         let api = &wrapped_kernel.api;
-        let mut context = KernelContext::from_raw(api, context.as_mut::<'s>().unwrap());
+        let context = context_ptr.as_ref::<'s>().unwrap();
 
-        let inputs = <T::OpInputs<'s> as Inputs>::from_ort(&context);
-        let outputs = kernel.kernel_compute(inputs);
-        outputs.write_to_ort(&mut context);
+        let outputs = {
+            let inputs = <T::OpInputs<'s> as Inputs>::from_ort(api, context);
+            kernel.kernel_compute(inputs)
+        };
+
+        // Bad hack to use a second context here! The first one is
+        // still borrowed immutably at this point :/
+        let out_context = context_ptr.as_mut::<'s>().unwrap();
+        outputs.write_to_ort(api, out_context);
     }
 
     unsafe extern "C" fn kernel_destroy<T: CustomOp>(op_kernel: *mut c_void) {

@@ -34,13 +34,13 @@ impl CustomOp for CustomAdd {
     const NAME: &'static str = "CustomAdd";
 
     type OpInputs<'s> = (ArrayViewD<'s, f32>, ArrayViewD<'s, f32>);
-    type OpOutputs<'s> = (ArrayD<f32>,);
+    type OpOutputs = (ArrayD<f32>,);
 
     fn kernel_create(_info: &KernelInfo) -> Self {
         CustomAdd
     }
 
-    fn kernel_compute<'s>(&self, (array_x, array_y): Self::OpInputs<'s>) -> Self::OpOutputs<'s> {
+    fn kernel_compute(&self, (array_x, array_y): Self::OpInputs<'_>) -> Self::OpOutputs {
         (&array_x + &array_y,)
     }
 }
@@ -56,14 +56,14 @@ impl CustomOp for ParseDateTime {
     const NAME: &'static str = "ParseDateTime";
 
     type OpInputs<'s> = (ArrayD<String>,);
-    type OpOutputs<'s> = (ArrayD<i64>,);
+    type OpOutputs = (ArrayD<i64>,);
 
     fn kernel_create(info: &KernelInfo) -> Self {
         let fmt = info.get_attribute_string("fmt").unwrap();
         Self { fmt }
     }
 
-    fn kernel_compute<'s>(&self, (array_in,): (ArrayD<String>,)) -> Self::OpOutputs<'s> {
+    fn kernel_compute<'s>(&self, (array_in,): (ArrayD<String>,)) -> Self::OpOutputs {
         let out = array_in.mapv(|s| {
             NaiveDateTime::parse_from_str(s.as_str(), self.fmt.as_str())
                 .unwrap()

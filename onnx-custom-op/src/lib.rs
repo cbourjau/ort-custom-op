@@ -1,6 +1,3 @@
-use std::ffi::CString;
-use std::os::raw::c_char;
-
 mod api;
 mod bindings;
 mod custom_op;
