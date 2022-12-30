@@ -1,4 +1,4 @@
-use std::ffi::{c_char, CString};
+use std::ffi::CString;
 
 use crate::bindings::*;
 use crate::error::ErrorStatusPtr;
@@ -23,6 +23,35 @@ pub enum ElementType {
     U32,
     U64,
     String,
+}
+
+/// Create a new custom domain with the operators `ops`.
+pub fn create_custom_op_domain(
+    session_options: &mut OrtSessionOptions,
+    api_base: &mut OrtApiBase,
+    domain: &str,
+    ops: &[&'static OrtCustomOp],
+) -> Result<(), ErrorStatusPtr> {
+    let api = unsafe { api_base.GetApi.unwrap()(12).as_ref().unwrap() };
+
+    let fun_ptr = api.CreateCustomOpDomain.unwrap();
+    let mut domain_ptr: *mut OrtCustomOpDomain = std::ptr::null_mut();
+
+    // Copies and leaks!
+    let c_op_domain = CString::new(domain).unwrap().into_raw();
+    let domain = unsafe {
+        // According to docs: "Must be freed with OrtApi::ReleaseCustomOpDomain"
+        status_to_result(fun_ptr(c_op_domain, &mut domain_ptr), api)?;
+        status_to_result(
+            api.AddCustomOpDomain.unwrap()(session_options, domain_ptr),
+            api,
+        )?;
+        domain_ptr.as_mut().unwrap()
+    };
+    for op in ops {
+        add_op_to_domain(api, domain, op)?;
+    }
+    Ok(())
 }
 
 /// Explicit struct around OrtTypeAndShapeInfo pointer since we are
@@ -198,7 +227,7 @@ impl OrtApi {
 }
 
 impl<'info> KernelInfo<'info> {
-    pub fn from_ort(api: &'static OrtApi, info: &'info OrtKernelInfo) -> Self {
+    pub(crate) fn from_ort(api: &'static OrtApi, info: &'info OrtKernelInfo) -> Self {
         KernelInfo { api, info }
     }
 
@@ -245,7 +274,7 @@ impl<'info> KernelInfo<'info> {
 }
 
 impl<'s> TensorTypeAndShapeInfo<'s> {
-    pub fn get_dimensions(&self) -> Result<Vec<i64>> {
+    fn get_dimensions(&self) -> Result<Vec<i64>> {
         let mut n_dim = 0;
         unsafe { self.api.GetDimensionsCount.unwrap()(self.info, &mut n_dim) };
         let mut out = Vec::with_capacity(n_dim as usize);
@@ -272,7 +301,6 @@ impl<'s> TensorTypeAndShapeInfo<'s> {
 }
 
 impl<'s> Drop for TensorTypeAndShapeInfo<'s> {
-    // TODO: I should actually use this drop impl...
     fn drop(&mut self) {
         unsafe { self.api.ReleaseTensorTypeAndShapeInfo.unwrap()(&mut *self.info) }
     }
@@ -299,47 +327,13 @@ impl ElementType {
     }
 }
 
-/// Create a new custom domain with the operators `ops`.
-pub fn create_custom_op_domain(
-    session_options: &mut OrtSessionOptions,
-    api_base: &mut OrtApiBase,
-    domain: &str,
-    ops: &[&'static OrtCustomOp],
-) -> Result<(), ErrorStatusPtr> {
-    let api = unsafe { api_base.GetApi.unwrap()(12).as_ref().unwrap() };
-
-    let fun_ptr = api.CreateCustomOpDomain.unwrap();
-    let mut domain_ptr: *mut OrtCustomOpDomain = std::ptr::null_mut();
-
-    // Copies and leaks!
-    let c_op_domain = str_to_c_char_ptr(domain);
-    let domain = unsafe {
-        // According to docs: "Must be freed with OrtApi::ReleaseCustomOpDomain"
-        status_to_result(fun_ptr(c_op_domain, &mut domain_ptr), api)?;
-        status_to_result(
-            api.AddCustomOpDomain.unwrap()(session_options, domain_ptr),
-            api,
-        )?;
-        domain_ptr.as_mut().unwrap()
-    };
-    for op in ops {
-        add_op_to_domain(api, domain, op)?;
-    }
-    Ok(())
-}
-
 fn add_op_to_domain(
     api: &OrtApi,
     domain: &mut OrtCustomOpDomain,
     op: &'static OrtCustomOp,
 ) -> Result<(), ErrorStatusPtr> {
     let fun_ptr = api.CustomOpDomain_Add.unwrap();
-    status_to_result(unsafe { fun_ptr(domain, op) }, api)?;
-    Ok(())
-}
-
-fn str_to_c_char_ptr(s: &str) -> *const c_char {
-    CString::new(s).unwrap().into_raw()
+    status_to_result(unsafe { fun_ptr(domain, op) }, api)
 }
 
 /// Wraps a status pointer into a result.
