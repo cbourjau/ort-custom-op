@@ -94,6 +94,29 @@ impl OrtApi {
         let value = self.get_input(context, index)?;
         self.get_string_tensor_data(value)
     }
+
+    pub(crate) fn fill_string_tensor(
+        &self,
+        context: &mut OrtKernelContext,
+        index: u64,
+        array: ArrayD<String>,
+    ) -> Result<()> {
+        let shape = array.shape();
+        let shape_i64: Vec<_> = shape.iter().map(|v| *v as i64).collect();
+
+        let cstrings = array.mapv(|s| CString::new(s).unwrap());
+        let pointers = cstrings.map(|s| s.as_ptr());
+
+        // Make sure that the vector is not dealocated before the ptr is used!
+        let vec_of_ptrs = pointers.into_raw_vec();
+        let ptr_of_ptrs = vec_of_ptrs.as_ptr();
+        let n_items = array.len() as u64;
+        let val = unsafe { self.get_output(context, index, &shape_i64) }?;
+
+        let fun = self.FillStringTensor.unwrap();
+        status_to_result(unsafe { fun(val, ptr_of_ptrs, n_items) }, self)?;
+        Ok(())
+    }
 }
 
 impl OrtApi {
@@ -231,20 +254,34 @@ impl<'info> KernelInfo<'info> {
         KernelInfo { api, info }
     }
 
+    /// Read a `f32` attribute.
+    pub fn get_attribute_f32(&self, name: &str) -> Result<f32> {
+        let name = CString::new(name)?;
+        let fun = self.api.KernelInfoGetAttribute_float.unwrap();
+        let mut out = 0.0;
+        status_to_result(unsafe { fun(self.info, name.as_ptr(), &mut out) }, self.api)?;
+        Ok(out)
+    }
+
+    /// Read a `i64` attribute.
+    pub fn get_attribute_i64(&self, name: &str) -> Result<i64> {
+        let name = CString::new(name)?;
+        let fun = self.api.KernelInfoGetAttribute_int64.unwrap();
+        let mut out = 0;
+        status_to_result(unsafe { fun(self.info, name.as_ptr(), &mut out) }, self.api)?;
+        Ok(out)
+    }
+
+    /// Read a `String` attribute
     pub fn get_attribute_string(&self, name: &str) -> Result<String> {
         let name = CString::new(name)?;
         // Get size first
+        let fun = self.api.KernelInfoGetAttribute_string.unwrap();
         let mut size = {
             let mut size = 0;
-            // let buf: *mut _ = std::ptr::null_mut();
             unsafe {
                 status_to_result(
-                    self.api.KernelInfoGetAttribute_string.unwrap()(
-                        self.info,
-                        name.as_ptr(),
-                        std::ptr::null_mut(),
-                        &mut size,
-                    ),
+                    fun(self.info, name.as_ptr(), std::ptr::null_mut(), &mut size),
                     self.api,
                 )?;
                 size
@@ -254,7 +291,7 @@ impl<'info> KernelInfo<'info> {
         let mut buf = vec![0u8; size as _];
         unsafe {
             status_to_result(
-                self.api.KernelInfoGetAttribute_string.unwrap()(
+                fun(
                     self.info,
                     name.as_ptr(),
                     buf.as_mut_ptr() as *mut i8,
@@ -264,6 +301,56 @@ impl<'info> KernelInfo<'info> {
             )?
         };
         Ok(CString::from_vec_with_nul(buf)?.into_string()?)
+    }
+
+    pub fn get_attribute_f32s(&self, name: &str) -> Result<Vec<f32>> {
+        let name = CString::new(name)?;
+        // Get size first
+        let fun = self.api.KernelInfoGetAttributeArray_float.unwrap();
+        let mut size = {
+            let mut size = 0;
+            unsafe {
+                status_to_result(
+                    fun(self.info, name.as_ptr(), std::ptr::null_mut(), &mut size),
+                    self.api,
+                )?;
+                size
+            }
+        };
+
+        let mut buf = vec![0f32; size as _];
+        unsafe {
+            status_to_result(
+                fun(self.info, name.as_ptr(), buf.as_mut_ptr(), &mut size),
+                self.api,
+            )?
+        };
+        Ok(buf)
+    }
+
+    pub fn get_attribute_i64s(&self, name: &str) -> Result<Vec<i64>> {
+        let name = CString::new(name)?;
+        // Get size first
+        let fun = self.api.KernelInfoGetAttributeArray_int64.unwrap();
+        let mut size = {
+            let mut size = 0;
+            unsafe {
+                status_to_result(
+                    fun(self.info, name.as_ptr(), std::ptr::null_mut(), &mut size),
+                    self.api,
+                )?;
+                size
+            }
+        };
+
+        let mut buf = vec![0i64; size as _];
+        unsafe {
+            status_to_result(
+                fun(self.info, name.as_ptr(), buf.as_mut_ptr(), &mut size),
+                self.api,
+            )?
+        };
+        Ok(buf)
     }
 
     // Not implemented for string?

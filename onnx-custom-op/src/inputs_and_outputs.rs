@@ -100,6 +100,14 @@ macro_rules! impl_output_non_string {
     };
 }
 
+impl Output for ArrayD<String> {
+    const OUTPUT_TYPE: ElementType = ElementType::String;
+
+    fn write_to_ort(self, api: &OrtApi, ctx: &mut OrtKernelContext, idx: u64) {
+        api.fill_string_tensor(ctx, idx, self).unwrap();
+    }
+}
+
 impl_output_non_string!(bool, Bool);
 impl_output_non_string!(f32, F32);
 impl_output_non_string!(f64, F64);

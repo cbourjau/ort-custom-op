@@ -39,25 +39,25 @@ where
         b"CPUExecutionProvider\0".as_ptr() as *const _
     }
 
-    extern "C" fn get_input_type<'s, T: CustomOp>(
+    extern "C" fn get_input_type<T: CustomOp>(
         _op: *const OrtCustomOp,
         index: size_t,
     ) -> ONNXTensorElementDataType {
-        <<T as CustomOp>::OpInputs<'s> as Inputs<'s>>::INPUT_TYPES[index as usize].to_ort_encoding()
+        <<T as CustomOp>::OpInputs<'_> as Inputs>::INPUT_TYPES[index as usize].to_ort_encoding()
     }
 
-    extern "C" fn get_input_type_count<'s, T: CustomOp>(_op: *const OrtCustomOp) -> size_t {
-        <<T as CustomOp>::OpInputs<'s> as Inputs<'s>>::INPUT_TYPES.len() as _
+    extern "C" fn get_input_type_count<T: CustomOp>(_op: *const OrtCustomOp) -> size_t {
+        <<T as CustomOp>::OpInputs<'_> as Inputs>::INPUT_TYPES.len() as _
     }
 
-    extern "C" fn get_output_type<'s, T: CustomOp>(
+    extern "C" fn get_output_type<T: CustomOp>(
         _op: *const OrtCustomOp,
         index: size_t,
     ) -> ONNXTensorElementDataType {
         <<T as CustomOp>::OpOutputs as Outputs>::OUTPUT_TYPES[index as usize].to_ort_encoding()
     }
 
-    extern "C" fn get_output_type_count<'s, T: CustomOp>(_op: *const OrtCustomOp) -> size_t {
+    extern "C" fn get_output_type_count<T: CustomOp>(_op: *const OrtCustomOp) -> size_t {
         <<T as CustomOp>::OpOutputs as Outputs>::OUTPUT_TYPES.len() as _
     }
 
@@ -103,7 +103,6 @@ where
         _op: *const OrtCustomOp,
         _index: size_t,
     ) -> OrtCustomOpInputOutputCharacteristic {
-        dbg!("get_input_characteristic");
         unimplemented!()
     }
 
@@ -111,7 +110,6 @@ where
         _op: *const OrtCustomOp,
         _index: size_t,
     ) -> OrtCustomOpInputOutputCharacteristic {
-        dbg!("get_out_characteristic");
         unimplemented!()
     }
 

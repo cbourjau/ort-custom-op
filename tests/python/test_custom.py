@@ -67,6 +67,54 @@ def parse_datetime_model():
 
 
 @pytest.fixture
+def attr_showcase_model():
+    # Using custom operators with the DSL (i.e. `onnx.parse`) for
+    # defining ONNX models seems to be unsupported...
+    node = helper.make_node(
+        "AttrShowcase",
+        ["IN1", "IN2", "IN3"],
+        ["OUT1", "OUT2", "OUT3"],
+        domain="my.domain",
+        **{
+            "float_attr": 3.14,
+            "int_attr": 42,
+            "string_attr": "bar",
+            "floats_attr": [3.14, 3.14],
+            "ints_attr": [42, 42],
+        },
+    )
+    value_infos_input = [
+        helper.make_value_info(
+            "IN1", helper.make_tensor_type_proto(TensorProto.FLOAT, [])
+        ),
+        helper.make_value_info(
+            "IN2", helper.make_tensor_type_proto(TensorProto.INT64, [])
+        ),
+        helper.make_value_info(
+            "IN3", helper.make_tensor_type_proto(TensorProto.STRING, [])
+        ),
+    ]
+    value_infos_output = [
+        helper.make_value_info(
+            "OUT1", helper.make_tensor_type_proto(TensorProto.FLOAT, [])
+        ),
+        helper.make_value_info(
+            "OUT2", helper.make_tensor_type_proto(TensorProto.INT64, [])
+        ),
+        helper.make_value_info(
+            "OUT3", helper.make_tensor_type_proto(TensorProto.STRING, [])
+        ),
+    ]
+    graph = helper.make_graph(
+        [node],
+        "graph",
+        value_infos_input,
+        value_infos_output,
+    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
+
+
+@pytest.fixture
 def shared_lib() -> Path:
     if "macOS" in platform():
         file_name = "libexample.dylib"
@@ -113,3 +161,17 @@ def test_parse_datetime(shared_lib, parse_datetime_model):
     res = sess.run([output_name], input_feed)
     output_expected = np.array([776073600, 1659686400])
     np.testing.assert_equal(output_expected, res[0])
+
+
+def test_attr_showcase(shared_lib, attr_showcase_model):
+    sess = setup_session(shared_lib, attr_showcase_model)
+    # Run with input data
+    input_feed = {
+        "IN1": np.array([0], np.float32),
+        "IN2": np.array([0], np.int64),
+        "IN3": np.array(["foo"], np.str_),
+    }
+    a, b, c = sess.run(None, input_feed)
+    np.testing.assert_equal(a, np.array([3.14], np.float32))
+    np.testing.assert_equal(b, [42])
+    np.testing.assert_equal(c, ["foo + bar"])
