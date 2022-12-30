@@ -1,16 +1,5 @@
-[package]
-name = "custom_op"
-version = "0.1.0"
-edition = "2021"
-
-# Example of customizing the library in Cargo.toml.
-[lib]
-crate-type = ["cdylib"]
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[build-dependencies]
-bindgen = "0.60.1"
-
-[dependencies]
-ndarray = "0.15.6"
+[workspace]
+members = [
+  "example",
+  "onnx-custom-op",
+]
