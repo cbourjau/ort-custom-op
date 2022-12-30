@@ -1,21 +1,18 @@
 Proof of concept for writing custom operators for onnxruntime
 =============================================================
 
-The usage of the library is demonstrated in `lib.rs`. Everything else
-is just making that machinery work but should not concern the user
-further.
+Custom operators can be made available to the onnxruntime by creating a shared library with a standardized API.
+Directly interfacing with the API and types exposed by onnxruntime is quite cumbersome and error prone, though.
+This project provides abstractions that make this interfacing much easier and safe.
 
-The core idea (at the moment) is that the user has to implement the
-`CustomOp` trait for a struct. This should then make it trivial to
-build the objects and APIs expected by onnxruntime.
+Each custom operator is an individual type which implements the `CustomOp` trait. Types which implement that trait can be `build` into static objects which are in turn exposed to the onnxruntime.
 
-The "test case" demonstrated in `lib.rs` is building two custom
-operators. An ONNX file using these operators is also part of this
-library. Testing the created shared library requires cargo (i.e. the
-standard rust tool chain), `onnxruntime` and `pytest`.
+The `example` crate demonstrates how to implement various custom operators.
+These operators are loaded and used in the Python test cases in `tests/python`.
+Building and running these tests requires `cargo` (i.e. the standard rust tool chain), `onnxruntime` and `pytest`.
 
-Run the following at the root of this repository to build the shared
-library and run the python-defined tests:
+Execute the following at the root of this repository to build the shared
+library and to run the python-defined tests:
 
 ```python
 cargo b && pytest tests/python -s
