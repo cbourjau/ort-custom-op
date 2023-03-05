@@ -1,6 +1,6 @@
 use chrono::NaiveDateTime;
 use ndarray::{ArrayD, ArrayViewD};
-use onnx_custom_op::prelude::*;
+use ort_custom_op::prelude::*;
 
 /// Static objects defining the custom operators
 const OP_CUSTOM_ADD: OrtCustomOp = build::<CustomAdd>();
@@ -46,7 +46,8 @@ impl CustomOp for CustomAdd {
 }
 
 /// Parse input strings as datetimes using the provided format string.
-/// Outputs a tensor of unix timestamps.
+/// Outputs a tensor of unix timestamps as a float64. Invalid inputs
+/// are mapped to f64::NAN to make the operation infallible.
 struct ParseDateTime {
     fmt: String,
 }
@@ -56,7 +57,7 @@ impl CustomOp for ParseDateTime {
     const NAME: &'static str = "ParseDateTime";
 
     type OpInputs<'s> = (ArrayD<String>,);
-    type OpOutputs = (ArrayD<i64>,);
+    type OpOutputs = (ArrayD<f64>,);
 
     fn kernel_create(info: &KernelInfo) -> Self {
         let fmt = info.get_attribute_string("fmt").unwrap();
@@ -66,14 +67,14 @@ impl CustomOp for ParseDateTime {
     fn kernel_compute<'s>(&self, (array_in,): (ArrayD<String>,)) -> Self::OpOutputs {
         let out = array_in.mapv(|s| {
             NaiveDateTime::parse_from_str(s.as_str(), self.fmt.as_str())
-                .unwrap()
-                .timestamp()
+                .map(|dt| dt.timestamp() as f64)
+                .unwrap_or_else(|_| f64::NAN)
         });
         (out,)
     }
 }
 
-/// A custom operator which adds its two inputs
+/// A custom operator showcasing the available attribute types
 #[derive(Debug)]
 struct AttrShowcase {
     float_attr: f32,

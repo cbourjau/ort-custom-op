@@ -1,5 +1,5 @@
 [workspace]
 members = [
   "example",
-  "onnx-custom-op",
+  "ort-custom-op",
 ]
