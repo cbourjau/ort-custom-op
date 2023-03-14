@@ -54,7 +54,7 @@ def parse_datetime_model():
     ]
     value_infos_output = [
         helper.make_value_info(
-            "B", helper.make_tensor_type_proto(TensorProto.INT64, [])
+            "B", helper.make_tensor_type_proto(TensorProto.DOUBLE, [])
         ),
     ]
     graph = helper.make_graph(
