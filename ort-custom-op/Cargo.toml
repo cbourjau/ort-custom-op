@@ -1,7 +1,11 @@
 [package]
 name = "ort_custom_op"
+description = "A library for writing custom operators for the onnxruntime in Rust."
 version = "0.1.0"
 edition = "2021"
+license = "BSD 3-Clause License"
+homepage = "https://github.com/cbourjau/ort-custom-op"
+repository = "https://github.com/cbourjau/ort-custom-op"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

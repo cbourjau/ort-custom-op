@@ -17,5 +17,3 @@ library and to run the python-defined tests:
 ```python
 cargo b && pytest tests/python -s
 ```
-
-
