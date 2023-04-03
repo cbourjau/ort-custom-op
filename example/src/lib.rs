@@ -60,7 +60,10 @@ impl CustomOp for ParseDateTime {
     type OpOutputs = (ArrayD<f64>,);
 
     fn kernel_create(info: &KernelInfo) -> Self {
-        let fmt = info.get_attribute_string("fmt").unwrap();
+        // There is no error propagation across the c-api at this
+        // point. At least the kernel creation is happening at session
+        // creation time so we don't get a nasty surprise at runtime.
+        let fmt = info.get_attribute_string("fmt").expect("");
         Self { fmt }
     }
 

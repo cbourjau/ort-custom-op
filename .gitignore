@@ -5,3 +5,4 @@ rust/custom_op/target/*
 /.venv/
 /.envrc
 *__pycache__
+/envs/
