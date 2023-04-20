@@ -3,7 +3,7 @@ use std::os::raw::{c_char, c_void};
 
 use crate::api::KernelInfo;
 use crate::bindings::{
-    size_t, ONNXTensorElementDataType, OrtApi, OrtCustomOp, OrtCustomOpInputOutputCharacteristic,
+    ONNXTensorElementDataType, OrtApi, OrtCustomOp, OrtCustomOpInputOutputCharacteristic,
     OrtKernelContext, OrtKernelInfo,
 };
 pub use crate::inputs_and_outputs::{Inputs, Outputs};
@@ -41,23 +41,23 @@ where
 
     extern "C" fn get_input_type<T: CustomOp>(
         _op: *const OrtCustomOp,
-        index: size_t,
+        index: usize,
     ) -> ONNXTensorElementDataType {
         <<T as CustomOp>::OpInputs<'_> as Inputs>::INPUT_TYPES[index as usize].to_ort_encoding()
     }
 
-    extern "C" fn get_input_type_count<T: CustomOp>(_op: *const OrtCustomOp) -> size_t {
+    extern "C" fn get_input_type_count<T: CustomOp>(_op: *const OrtCustomOp) -> usize {
         <<T as CustomOp>::OpInputs<'_> as Inputs>::INPUT_TYPES.len() as _
     }
 
     extern "C" fn get_output_type<T: CustomOp>(
         _op: *const OrtCustomOp,
-        index: size_t,
+        index: usize,
     ) -> ONNXTensorElementDataType {
         <<T as CustomOp>::OpOutputs as Outputs>::OUTPUT_TYPES[index as usize].to_ort_encoding()
     }
 
-    extern "C" fn get_output_type_count<T: CustomOp>(_op: *const OrtCustomOp) -> size_t {
+    extern "C" fn get_output_type_count<T: CustomOp>(_op: *const OrtCustomOp) -> usize {
         <<T as CustomOp>::OpOutputs as Outputs>::OUTPUT_TYPES.len() as _
     }
 
@@ -101,14 +101,14 @@ where
 
     extern "C" fn get_input_characteristic(
         _op: *const OrtCustomOp,
-        _index: size_t,
+        _index: usize,
     ) -> OrtCustomOpInputOutputCharacteristic {
         unimplemented!()
     }
 
     extern "C" fn get_output_characteristic(
         _op: *const OrtCustomOp,
-        _index: size_t,
+        _index: usize,
     ) -> OrtCustomOpInputOutputCharacteristic {
         unimplemented!()
     }

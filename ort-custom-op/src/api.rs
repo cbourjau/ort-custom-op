@@ -68,7 +68,7 @@ impl OrtApi {
     pub(crate) fn get_input_array<'s, T>(
         &self,
         context: &'s OrtKernelContext,
-        index: u64,
+        index: usize,
     ) -> Result<ArrayViewD<'s, T>> {
         let value = self.get_input(context, index)?;
         let shape: Vec<_> = self
@@ -89,7 +89,7 @@ impl OrtApi {
     pub(crate) fn get_input_array_string(
         &self,
         context: &OrtKernelContext,
-        index: u64,
+        index: usize,
     ) -> Result<ArrayD<String>> {
         let value = self.get_input(context, index)?;
         self.get_string_tensor_data(value)
@@ -98,7 +98,7 @@ impl OrtApi {
     pub(crate) fn fill_string_tensor(
         &self,
         context: &mut OrtKernelContext,
-        index: u64,
+        index: usize,
         array: ArrayD<String>,
     ) -> Result<()> {
         let shape = array.shape();
@@ -110,7 +110,7 @@ impl OrtApi {
         // Make sure that the vector is not dealocated before the ptr is used!
         let vec_of_ptrs = pointers.into_raw_vec();
         let ptr_of_ptrs = vec_of_ptrs.as_ptr();
-        let n_items = array.len() as u64;
+        let n_items = array.len();
         let val = unsafe { self.get_output(context, index, &shape_i64) }?;
 
         let fun = self.FillStringTensor.unwrap();
@@ -121,7 +121,7 @@ impl OrtApi {
 
 impl OrtApi {
     /// Get `OrtValue` for input with index `idx`.
-    fn get_input<'s>(&self, ctx: &'s OrtKernelContext, idx: u64) -> Result<&'s mut OrtValue> {
+    fn get_input<'s>(&self, ctx: &'s OrtKernelContext, idx: usize) -> Result<&'s mut OrtValue> {
         let fun = self.KernelContext_GetInput.unwrap();
 
         let mut value: *const OrtValue = std::ptr::null();
@@ -140,14 +140,14 @@ impl OrtApi {
     pub unsafe fn get_output<'s>(
         &self,
         ctx: &'s mut OrtKernelContext,
-        idx: u64,
+        idx: usize,
         shape: &[i64],
     ) -> Result<&'s mut OrtValue> {
         let fun = self.KernelContext_GetOutput.unwrap();
 
         let mut value: *mut OrtValue = std::ptr::null_mut();
         status_to_result(
-            unsafe { fun(ctx, idx, shape.as_ptr(), shape.len() as u64, &mut value) },
+            unsafe { fun(ctx, idx, shape.as_ptr(), shape.len(), &mut value) },
             self,
         )?;
         match unsafe { value.as_mut() } {
@@ -196,8 +196,8 @@ impl OrtApi {
     }
 
     /// Total number of bytes of all concatenated strings (no trailing nulls!)
-    fn get_string_tensor_data_length(&self, value: &OrtValue) -> Result<u64> {
-        let mut non_null_bytes: u64 = 0;
+    fn get_string_tensor_data_length(&self, value: &OrtValue) -> Result<usize> {
+        let mut non_null_bytes = 0;
         let fun_ptr = self.GetStringTensorDataLength.unwrap();
         status_to_result(unsafe { fun_ptr(value, &mut non_null_bytes) }, self)?;
         Ok(non_null_bytes)
@@ -218,7 +218,7 @@ impl OrtApi {
                 buf.as_mut_ptr() as *mut _,
                 non_null_bytes,
                 offsets.as_mut_ptr() as *mut _,
-                offsets.len() as u64,
+                offsets.len(),
             );
         }
 
@@ -372,7 +372,7 @@ impl<'s> TensorTypeAndShapeInfo<'s> {
         Ok(out)
     }
 
-    fn get_tensor_shape_element_count(&self) -> Result<u64> {
+    fn get_tensor_shape_element_count(&self) -> Result<usize> {
         let mut element_count = 0;
         status_to_result(
             unsafe { self.api.GetTensorShapeElementCount.unwrap()(self.info, &mut element_count) },

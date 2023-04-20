@@ -20,7 +20,7 @@ pub trait Outputs {
 trait Input<'s> {
     const INPUT_TYPE: ElementType;
 
-    fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext, idx: u64) -> Self;
+    fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext, idx: usize) -> Self;
 }
 
 macro_rules! impl_input_non_string {
@@ -28,7 +28,7 @@ macro_rules! impl_input_non_string {
         impl<'s> Input<'s> for ArrayViewD<'s, $ty> {
             const INPUT_TYPE: ElementType = ElementType::$variant;
 
-            fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext, idx: u64) -> Self {
+            fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext, idx: usize) -> Self {
                 api.get_input_array::<$ty>(ctx, idx)
                     .expect("Loading input data of given type failed.")
             }
@@ -49,7 +49,7 @@ impl_input_non_string!(u8, U8);
 impl<'s> Input<'s> for ArrayD<String> {
     const INPUT_TYPE: ElementType = ElementType::String;
 
-    fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext, idx: u64) -> Self {
+    fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext, idx: usize) -> Self {
         api.get_input_array_string(ctx, idx)
             .expect("Loading input data of given type failed.")
     }
@@ -81,7 +81,7 @@ impl_inputs! {0, 1, 2, 3, 4, 5; A, B, C, D, E, F}
 trait Output {
     const OUTPUT_TYPE: ElementType;
 
-    fn write_to_ort(self, api: &OrtApi, ctx: &mut OrtKernelContext, idx: u64);
+    fn write_to_ort(self, api: &OrtApi, ctx: &mut OrtKernelContext, idx: usize);
 }
 
 macro_rules! impl_output_non_string {
@@ -89,7 +89,7 @@ macro_rules! impl_output_non_string {
         impl<'s> Output for ArrayD<$ty> {
             const OUTPUT_TYPE: ElementType = ElementType::$variant;
 
-            fn write_to_ort(self, api: &OrtApi, ctx: &mut OrtKernelContext, idx: u64) {
+            fn write_to_ort(self, api: &OrtApi, ctx: &mut OrtKernelContext, idx: usize) {
                 let shape = self.shape();
                 let shape_i64: Vec<_> = shape.iter().map(|v| *v as i64).collect();
                 let val = unsafe { api.get_output(ctx, idx, &shape_i64) }.unwrap();
@@ -103,7 +103,7 @@ macro_rules! impl_output_non_string {
 impl Output for ArrayD<String> {
     const OUTPUT_TYPE: ElementType = ElementType::String;
 
-    fn write_to_ort(self, api: &OrtApi, ctx: &mut OrtKernelContext, idx: u64) {
+    fn write_to_ort(self, api: &OrtApi, ctx: &mut OrtKernelContext, idx: usize) {
         api.fill_string_tensor(ctx, idx, self).unwrap();
     }
 }

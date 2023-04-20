@@ -9,9 +9,6 @@ repository = "https://github.com/cbourjau/ort-custom-op"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[build-dependencies]
-bindgen = "0.60.1"
-
 [dependencies]
 anyhow = "1.0.68"
 ndarray = "0.15.6"
