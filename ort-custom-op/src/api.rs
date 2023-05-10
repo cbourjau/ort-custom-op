@@ -6,6 +6,8 @@ use crate::error::ErrorStatusPtr;
 use anyhow::Result;
 use ndarray::{Array, ArrayD, ArrayView, ArrayViewD, ArrayViewMut, ArrayViewMutD};
 
+pub const API_VERSION: u32 = 14;
+
 #[derive(Debug)]
 pub struct KernelInfo<'s> {
     api: &'static OrtApi,
@@ -32,7 +34,7 @@ pub fn create_custom_op_domain(
     domain: &str,
     ops: &[&'static OrtCustomOp],
 ) -> Result<(), ErrorStatusPtr> {
-    let api = unsafe { api_base.GetApi.unwrap()(12).as_ref().unwrap() };
+    let api = unsafe { api_base.GetApi.unwrap()(API_VERSION).as_ref().unwrap() };
 
     let fun_ptr = api.CreateCustomOpDomain.unwrap();
     let mut domain_ptr: *mut OrtCustomOpDomain = std::ptr::null_mut();
@@ -117,6 +119,20 @@ impl OrtApi {
         status_to_result(unsafe { fun(val, ptr_of_ptrs, n_items) }, self)?;
         Ok(())
     }
+
+    pub(crate) fn get_input_count(&self, context: &OrtKernelContext) -> Result<usize> {
+        let fun = self.KernelContext_GetInputCount.unwrap();
+        let mut out: usize = 0;
+        status_to_result(unsafe { fun(context, &mut out) }, self)?;
+        Ok(out)
+    }
+
+    pub(crate) fn get_output_count(&self, context: &OrtKernelContext) -> Result<usize> {
+        let fun = self.KernelContext_GetOutputCount.unwrap();
+        let mut out: usize = 0;
+        status_to_result(unsafe { fun(context, &mut out) }, self)?;
+        Ok(out)
+    }
 }
 
 impl OrtApi {
@@ -172,7 +188,7 @@ impl OrtApi {
         let mut ptr: *mut _ = std::ptr::null_mut();
         let data = unsafe {
             fun(value, &mut ptr);
-            std::slice::from_raw_parts_mut(ptr as *mut T, element_count as usize)
+            std::slice::from_raw_parts_mut(ptr as *mut T, element_count)
         };
         let a = ArrayViewMut::from(data).into_shape(shape).unwrap();
         Ok(a)
@@ -210,8 +226,8 @@ impl OrtApi {
         let item_count = info.get_tensor_shape_element_count()?;
         let non_null_bytes = self.get_string_tensor_data_length(value)?;
 
-        let mut buf = vec![0u8; non_null_bytes as usize];
-        let mut offsets = vec![0usize; item_count as usize];
+        let mut buf = vec![0u8; non_null_bytes];
+        let mut offsets = vec![0usize; item_count];
         unsafe {
             fun_ptr(
                 value,
@@ -224,7 +240,7 @@ impl OrtApi {
 
         // Compute windows with the start and end of each
         // substring and then scan the buffer.
-        let very_end = [non_null_bytes as usize];
+        let very_end = [non_null_bytes];
         let starts = offsets.iter();
         let ends = offsets.iter().chain(very_end.iter()).skip(1);
         let windows = starts.zip(ends);
@@ -364,10 +380,10 @@ impl<'s> TensorTypeAndShapeInfo<'s> {
     fn get_dimensions(&self) -> Result<Vec<i64>> {
         let mut n_dim = 0;
         unsafe { self.api.GetDimensionsCount.unwrap()(self.info, &mut n_dim) };
-        let mut out = Vec::with_capacity(n_dim as usize);
+        let mut out = Vec::with_capacity(n_dim);
         unsafe {
             self.api.GetDimensions.unwrap()(self.info, out.as_mut_ptr(), n_dim);
-            out.set_len(n_dim as usize);
+            out.set_len(n_dim);
         }
         Ok(out)
     }

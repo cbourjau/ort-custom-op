@@ -190,6 +190,11 @@ pub struct OrtCUDAProviderOptionsV2 {
 }
 #[repr(C)]
 #[derive(Debug)]
+pub struct OrtCANNProviderOptions {
+    _unused: [u8; 0],
+}
+#[repr(C)]
+#[derive(Debug)]
 pub struct OrtOp {
     _unused: [u8; 0],
 }
@@ -325,6 +330,11 @@ pub const OrtMemType_OrtMemTypeCPU: OrtMemType = -1;
 pub const OrtMemType_OrtMemTypeDefault: OrtMemType = 0;
 #[doc = " \\brief Memory types for allocated memory, execution provider specific types should be extended in each provider."]
 pub type OrtMemType = ::std::os::raw::c_int;
+pub const OrtMemoryInfoDeviceType_OrtMemoryInfoDeviceType_CPU: OrtMemoryInfoDeviceType = 0;
+pub const OrtMemoryInfoDeviceType_OrtMemoryInfoDeviceType_GPU: OrtMemoryInfoDeviceType = 1;
+pub const OrtMemoryInfoDeviceType_OrtMemoryInfoDeviceType_FPGA: OrtMemoryInfoDeviceType = 2;
+#[doc = " \\brief This mimics OrtDevice type constants so they can be returned in the API"]
+pub type OrtMemoryInfoDeviceType = ::std::os::raw::c_uint;
 pub const OrtCudnnConvAlgoSearch_OrtCudnnConvAlgoSearchExhaustive: OrtCudnnConvAlgoSearch = 0;
 pub const OrtCudnnConvAlgoSearch_OrtCudnnConvAlgoSearchHeuristic: OrtCudnnConvAlgoSearch = 1;
 pub const OrtCudnnConvAlgoSearch_OrtCudnnConvAlgoSearchDefault: OrtCudnnConvAlgoSearch = 2;
@@ -350,6 +360,8 @@ pub struct OrtCUDAProviderOptions {
     pub user_compute_stream: *mut ::std::os::raw::c_void,
     #[doc = " \\brief CUDA memory arena configuration parameters"]
     pub default_memory_arena_cfg: *mut OrtArenaCfg,
+    #[doc = " \\brief Enable TunableOp.\n   Set it to 1 to enable TunableOp. Otherwise, it is disabled by default.\n   This option can be superseded by environment variable ORT_CUDA_TUNABLE_OP_ENABLED."]
+    pub tunable_op_enabled: ::std::os::raw::c_int,
 }
 #[test]
 fn bindgen_test_layout_OrtCUDAProviderOptions() {
@@ -358,7 +370,7 @@ fn bindgen_test_layout_OrtCUDAProviderOptions() {
     let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::std::mem::size_of::<OrtCUDAProviderOptions>(),
-        48usize,
+        56usize,
         concat!("Size of: ", stringify!(OrtCUDAProviderOptions))
     );
     assert_eq!(
@@ -446,6 +458,16 @@ fn bindgen_test_layout_OrtCUDAProviderOptions() {
             stringify!(default_memory_arena_cfg)
         )
     );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).tunable_op_enabled) as usize - ptr as usize },
+        48usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtCUDAProviderOptions),
+            "::",
+            stringify!(tunable_op_enabled)
+        )
+    );
 }
 #[doc = " \\brief ROCM Provider Options\n\n \\see OrtApi::SessionOptionsAppendExecutionProvider_ROCM"]
 #[repr(C)]
@@ -467,6 +489,8 @@ pub struct OrtROCMProviderOptions {
     pub user_compute_stream: *mut ::std::os::raw::c_void,
     #[doc = " \\brief ROCM memory arena configuration parameters"]
     pub default_memory_arena_cfg: *mut OrtArenaCfg,
+    #[doc = " \\brief Enable TunableOp.\n   Set it to 1 to enable TunableOp. Otherwise, it is disabled by default.\n   This option can be superseded by environment variable ORT_ROCM_TUNABLE_OP_ENABLED."]
+    pub tunable_op_enabled: ::std::os::raw::c_int,
 }
 #[test]
 fn bindgen_test_layout_OrtROCMProviderOptions() {
@@ -475,7 +499,7 @@ fn bindgen_test_layout_OrtROCMProviderOptions() {
     let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::std::mem::size_of::<OrtROCMProviderOptions>(),
-        48usize,
+        56usize,
         concat!("Size of: ", stringify!(OrtROCMProviderOptions))
     );
     assert_eq!(
@@ -563,6 +587,16 @@ fn bindgen_test_layout_OrtROCMProviderOptions() {
             stringify!(OrtROCMProviderOptions),
             "::",
             stringify!(default_memory_arena_cfg)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).tunable_op_enabled) as usize - ptr as usize },
+        48usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtROCMProviderOptions),
+            "::",
+            stringify!(tunable_op_enabled)
         )
     );
 }
@@ -857,16 +891,14 @@ fn bindgen_test_layout_OrtMIGraphXProviderOptions() {
 #[repr(C)]
 #[derive(Debug)]
 pub struct OrtOpenVINOProviderOptions {
-    #[doc = " \\brief Device type string\n\n Valid settings are one of: \"CPU_FP32\", \"GPU_FP32\", \"GPU_FP16\", \"MYRIAD_FP16\", \"VAD-M_FP16\" or \"VAD-F_FP32\""]
+    #[doc = " \\brief Device type string\n\n Valid settings are one of: \"CPU_FP32\", \"CPU_FP16\", \"GPU_FP32\", \"GPU_FP16\", \"MYRIAD_FP16\", \"VAD-M_FP16\" or \"VAD-F_FP32\""]
     pub device_type: *const ::std::os::raw::c_char,
     #[doc = "< 0 = disabled, nonzero = enabled"]
     pub enable_vpu_fast_compile: ::std::os::raw::c_uchar,
     pub device_id: *const ::std::os::raw::c_char,
     #[doc = "< 0 = Use default number of threads"]
     pub num_of_threads: usize,
-    #[doc = "< 0 = disabled, nonzero = enabled"]
-    pub use_compiled_network: ::std::os::raw::c_uchar,
-    pub blob_dump_path: *const ::std::os::raw::c_char,
+    pub cache_dir: *const ::std::os::raw::c_char,
     pub context: *mut ::std::os::raw::c_void,
     #[doc = "< 0 = disabled, nonzero = enabled"]
     pub enable_opencl_throttling: ::std::os::raw::c_uchar,
@@ -880,7 +912,7 @@ fn bindgen_test_layout_OrtOpenVINOProviderOptions() {
     let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::std::mem::size_of::<OrtOpenVINOProviderOptions>(),
-        64usize,
+        56usize,
         concat!("Size of: ", stringify!(OrtOpenVINOProviderOptions))
     );
     assert_eq!(
@@ -929,28 +961,18 @@ fn bindgen_test_layout_OrtOpenVINOProviderOptions() {
         )
     );
     assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).use_compiled_network) as usize - ptr as usize },
+        unsafe { ::std::ptr::addr_of!((*ptr).cache_dir) as usize - ptr as usize },
         32usize,
         concat!(
             "Offset of field: ",
             stringify!(OrtOpenVINOProviderOptions),
             "::",
-            stringify!(use_compiled_network)
-        )
-    );
-    assert_eq!(
-        unsafe { ::std::ptr::addr_of!((*ptr).blob_dump_path) as usize - ptr as usize },
-        40usize,
-        concat!(
-            "Offset of field: ",
-            stringify!(OrtOpenVINOProviderOptions),
-            "::",
-            stringify!(blob_dump_path)
+            stringify!(cache_dir)
         )
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).context) as usize - ptr as usize },
-        48usize,
+        40usize,
         concat!(
             "Offset of field: ",
             stringify!(OrtOpenVINOProviderOptions),
@@ -960,7 +982,7 @@ fn bindgen_test_layout_OrtOpenVINOProviderOptions() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).enable_opencl_throttling) as usize - ptr as usize },
-        56usize,
+        48usize,
         concat!(
             "Offset of field: ",
             stringify!(OrtOpenVINOProviderOptions),
@@ -970,7 +992,7 @@ fn bindgen_test_layout_OrtOpenVINOProviderOptions() {
     );
     assert_eq!(
         unsafe { ::std::ptr::addr_of!((*ptr).enable_dynamic_shapes) as usize - ptr as usize },
-        57usize,
+        49usize,
         concat!(
             "Offset of field: ",
             stringify!(OrtOpenVINOProviderOptions),
@@ -2329,6 +2351,119 @@ pub struct OrtApi {
     pub ReleaseKernelInfo: ::std::option::Option<unsafe extern "C" fn(input: *mut OrtKernelInfo)>,
     pub GetTrainingApi:
         ::std::option::Option<unsafe extern "C" fn(version: u32) -> *const OrtTrainingApi>,
+    pub SessionOptionsAppendExecutionProvider_CANN: ::std::option::Option<
+        unsafe extern "C" fn(
+            options: *mut OrtSessionOptions,
+            cann_options: *const OrtCANNProviderOptions,
+        ) -> OrtStatusPtr,
+    >,
+    pub CreateCANNProviderOptions: ::std::option::Option<
+        unsafe extern "C" fn(out: *mut *mut OrtCANNProviderOptions) -> OrtStatusPtr,
+    >,
+    pub UpdateCANNProviderOptions: ::std::option::Option<
+        unsafe extern "C" fn(
+            cann_options: *mut OrtCANNProviderOptions,
+            provider_options_keys: *const *const ::std::os::raw::c_char,
+            provider_options_values: *const *const ::std::os::raw::c_char,
+            num_keys: usize,
+        ) -> OrtStatusPtr,
+    >,
+    pub GetCANNProviderOptionsAsString: ::std::option::Option<
+        unsafe extern "C" fn(
+            cann_options: *const OrtCANNProviderOptions,
+            allocator: *mut OrtAllocator,
+            ptr: *mut *mut ::std::os::raw::c_char,
+        ) -> OrtStatusPtr,
+    >,
+    #[doc = " \\brief Release an OrtCANNProviderOptions\n\n \\param[in] the pointer of OrtCANNProviderOptions which will been deleted\n\n \\since Version 1.13."]
+    pub ReleaseCANNProviderOptions:
+        ::std::option::Option<unsafe extern "C" fn(input: *mut OrtCANNProviderOptions)>,
+    pub MemoryInfoGetDeviceType: ::std::option::Option<
+        unsafe extern "C" fn(ptr: *const OrtMemoryInfo, out: *mut OrtMemoryInfoDeviceType),
+    >,
+    pub UpdateEnvWithCustomLogLevel: ::std::option::Option<
+        unsafe extern "C" fn(
+            ort_env: *mut OrtEnv,
+            log_severity_level: OrtLoggingLevel,
+        ) -> OrtStatusPtr,
+    >,
+    pub SetGlobalIntraOpThreadAffinity: ::std::option::Option<
+        unsafe extern "C" fn(
+            tp_options: *mut OrtThreadingOptions,
+            affinity_string: *const ::std::os::raw::c_char,
+        ) -> OrtStatusPtr,
+    >,
+    pub RegisterCustomOpsLibrary_V2: ::std::option::Option<
+        unsafe extern "C" fn(
+            options: *mut OrtSessionOptions,
+            library_name: *const ::std::os::raw::c_char,
+        ) -> OrtStatusPtr,
+    >,
+    pub RegisterCustomOpsUsingFunction: ::std::option::Option<
+        unsafe extern "C" fn(
+            options: *mut OrtSessionOptions,
+            registration_func_name: *const ::std::os::raw::c_char,
+        ) -> OrtStatusPtr,
+    >,
+    pub KernelInfo_GetInputCount: ::std::option::Option<
+        unsafe extern "C" fn(info: *const OrtKernelInfo, out: *mut usize) -> OrtStatusPtr,
+    >,
+    pub KernelInfo_GetOutputCount: ::std::option::Option<
+        unsafe extern "C" fn(info: *const OrtKernelInfo, out: *mut usize) -> OrtStatusPtr,
+    >,
+    pub KernelInfo_GetInputName: ::std::option::Option<
+        unsafe extern "C" fn(
+            info: *const OrtKernelInfo,
+            index: usize,
+            out: *mut ::std::os::raw::c_char,
+            size: *mut usize,
+        ) -> OrtStatusPtr,
+    >,
+    pub KernelInfo_GetOutputName: ::std::option::Option<
+        unsafe extern "C" fn(
+            info: *const OrtKernelInfo,
+            index: usize,
+            out: *mut ::std::os::raw::c_char,
+            size: *mut usize,
+        ) -> OrtStatusPtr,
+    >,
+    pub KernelInfo_GetInputTypeInfo: ::std::option::Option<
+        unsafe extern "C" fn(
+            info: *const OrtKernelInfo,
+            index: usize,
+            type_info: *mut *mut OrtTypeInfo,
+        ) -> OrtStatusPtr,
+    >,
+    pub KernelInfo_GetOutputTypeInfo: ::std::option::Option<
+        unsafe extern "C" fn(
+            info: *const OrtKernelInfo,
+            index: usize,
+            type_info: *mut *mut OrtTypeInfo,
+        ) -> OrtStatusPtr,
+    >,
+    pub KernelInfoGetAttribute_tensor: ::std::option::Option<
+        unsafe extern "C" fn(
+            info: *const OrtKernelInfo,
+            name: *const ::std::os::raw::c_char,
+            allocator: *mut OrtAllocator,
+            out: *mut *mut OrtValue,
+        ) -> OrtStatusPtr,
+    >,
+    pub HasSessionConfigEntry: ::std::option::Option<
+        unsafe extern "C" fn(
+            options: *const OrtSessionOptions,
+            config_key: *const ::std::os::raw::c_char,
+            out: *mut ::std::os::raw::c_int,
+        ) -> OrtStatusPtr,
+    >,
+    pub GetSessionConfigEntry: ::std::option::Option<
+        unsafe extern "C" fn(
+            options: *const OrtSessionOptions,
+            config_key: *const ::std::os::raw::c_char,
+            config_value: *mut ::std::os::raw::c_char,
+            size: *mut usize,
+        ) -> OrtStatusPtr,
+    >,
 }
 #[test]
 fn bindgen_test_layout_OrtApi() {
@@ -2336,7 +2471,7 @@ fn bindgen_test_layout_OrtApi() {
     let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::std::mem::size_of::<OrtApi>(),
-        1760usize,
+        1912usize,
         concat!("Size of: ", stringify!(OrtApi))
     );
     assert_eq!(
@@ -4675,11 +4810,216 @@ fn bindgen_test_layout_OrtApi() {
             stringify!(GetTrainingApi)
         )
     );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).SessionOptionsAppendExecutionProvider_CANN) as usize
+                - ptr as usize
+        },
+        1760usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtApi),
+            "::",
+            stringify!(SessionOptionsAppendExecutionProvider_CANN)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).CreateCANNProviderOptions) as usize - ptr as usize },
+        1768usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtApi),
+            "::",
+            stringify!(CreateCANNProviderOptions)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).UpdateCANNProviderOptions) as usize - ptr as usize },
+        1776usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtApi),
+            "::",
+            stringify!(UpdateCANNProviderOptions)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).GetCANNProviderOptionsAsString) as usize - ptr as usize
+        },
+        1784usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtApi),
+            "::",
+            stringify!(GetCANNProviderOptionsAsString)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).ReleaseCANNProviderOptions) as usize - ptr as usize },
+        1792usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtApi),
+            "::",
+            stringify!(ReleaseCANNProviderOptions)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).MemoryInfoGetDeviceType) as usize - ptr as usize },
+        1800usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtApi),
+            "::",
+            stringify!(MemoryInfoGetDeviceType)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).UpdateEnvWithCustomLogLevel) as usize - ptr as usize },
+        1808usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtApi),
+            "::",
+            stringify!(UpdateEnvWithCustomLogLevel)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).SetGlobalIntraOpThreadAffinity) as usize - ptr as usize
+        },
+        1816usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtApi),
+            "::",
+            stringify!(SetGlobalIntraOpThreadAffinity)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).RegisterCustomOpsLibrary_V2) as usize - ptr as usize },
+        1824usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtApi),
+            "::",
+            stringify!(RegisterCustomOpsLibrary_V2)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).RegisterCustomOpsUsingFunction) as usize - ptr as usize
+        },
+        1832usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtApi),
+            "::",
+            stringify!(RegisterCustomOpsUsingFunction)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).KernelInfo_GetInputCount) as usize - ptr as usize },
+        1840usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtApi),
+            "::",
+            stringify!(KernelInfo_GetInputCount)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).KernelInfo_GetOutputCount) as usize - ptr as usize },
+        1848usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtApi),
+            "::",
+            stringify!(KernelInfo_GetOutputCount)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).KernelInfo_GetInputName) as usize - ptr as usize },
+        1856usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtApi),
+            "::",
+            stringify!(KernelInfo_GetInputName)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).KernelInfo_GetOutputName) as usize - ptr as usize },
+        1864usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtApi),
+            "::",
+            stringify!(KernelInfo_GetOutputName)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).KernelInfo_GetInputTypeInfo) as usize - ptr as usize },
+        1872usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtApi),
+            "::",
+            stringify!(KernelInfo_GetInputTypeInfo)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).KernelInfo_GetOutputTypeInfo) as usize - ptr as usize
+        },
+        1880usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtApi),
+            "::",
+            stringify!(KernelInfo_GetOutputTypeInfo)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).KernelInfoGetAttribute_tensor) as usize - ptr as usize
+        },
+        1888usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtApi),
+            "::",
+            stringify!(KernelInfoGetAttribute_tensor)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).HasSessionConfigEntry) as usize - ptr as usize },
+        1896usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtApi),
+            "::",
+            stringify!(HasSessionConfigEntry)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).GetSessionConfigEntry) as usize - ptr as usize },
+        1904usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtApi),
+            "::",
+            stringify!(GetSessionConfigEntry)
+        )
+    );
 }
 pub const OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_REQUIRED:
     OrtCustomOpInputOutputCharacteristic = 0;
 pub const OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_OPTIONAL:
     OrtCustomOpInputOutputCharacteristic = 1;
+pub const OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_VARIADIC:
+    OrtCustomOpInputOutputCharacteristic = 2;
 pub type OrtCustomOpInputOutputCharacteristic = ::std::os::raw::c_uint;
 #[repr(C)]
 #[derive(Debug)]
@@ -4728,6 +5068,21 @@ pub struct OrtCustomOp {
             index: usize,
         ) -> OrtCustomOpInputOutputCharacteristic,
     >,
+    pub GetInputMemoryType: ::std::option::Option<
+        unsafe extern "C" fn(op: *const OrtCustomOp, index: usize) -> OrtMemType,
+    >,
+    pub GetVariadicInputMinArity: ::std::option::Option<
+        unsafe extern "C" fn(op: *const OrtCustomOp) -> ::std::os::raw::c_int,
+    >,
+    pub GetVariadicInputHomogeneity: ::std::option::Option<
+        unsafe extern "C" fn(op: *const OrtCustomOp) -> ::std::os::raw::c_int,
+    >,
+    pub GetVariadicOutputMinArity: ::std::option::Option<
+        unsafe extern "C" fn(op: *const OrtCustomOp) -> ::std::os::raw::c_int,
+    >,
+    pub GetVariadicOutputHomogeneity: ::std::option::Option<
+        unsafe extern "C" fn(op: *const OrtCustomOp) -> ::std::os::raw::c_int,
+    >,
 }
 #[test]
 fn bindgen_test_layout_OrtCustomOp() {
@@ -4735,7 +5090,7 @@ fn bindgen_test_layout_OrtCustomOp() {
     let ptr = UNINIT.as_ptr();
     assert_eq!(
         ::std::mem::size_of::<OrtCustomOp>(),
-        96usize,
+        136usize,
         concat!("Size of: ", stringify!(OrtCustomOp))
     );
     assert_eq!(
@@ -4861,6 +5216,58 @@ fn bindgen_test_layout_OrtCustomOp() {
             stringify!(OrtCustomOp),
             "::",
             stringify!(GetOutputCharacteristic)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).GetInputMemoryType) as usize - ptr as usize },
+        96usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtCustomOp),
+            "::",
+            stringify!(GetInputMemoryType)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).GetVariadicInputMinArity) as usize - ptr as usize },
+        104usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtCustomOp),
+            "::",
+            stringify!(GetVariadicInputMinArity)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).GetVariadicInputHomogeneity) as usize - ptr as usize },
+        112usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtCustomOp),
+            "::",
+            stringify!(GetVariadicInputHomogeneity)
+        )
+    );
+    assert_eq!(
+        unsafe { ::std::ptr::addr_of!((*ptr).GetVariadicOutputMinArity) as usize - ptr as usize },
+        120usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtCustomOp),
+            "::",
+            stringify!(GetVariadicOutputMinArity)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            ::std::ptr::addr_of!((*ptr).GetVariadicOutputHomogeneity) as usize - ptr as usize
+        },
+        128usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(OrtCustomOp),
+            "::",
+            stringify!(GetVariadicOutputHomogeneity)
         )
     );
 }

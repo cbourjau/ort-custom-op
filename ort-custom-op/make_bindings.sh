@@ -1,7 +1,7 @@
 #! /bin/bash
 
 # Create a new bindings file
-bindgen \
+~/.cargo/bin/bindgen \
     --allowlist-type "OrtApi.*" \
     --no-copy "Ort.*" \
     -o src/bindings.rs \
