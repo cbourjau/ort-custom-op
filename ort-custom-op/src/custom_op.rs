@@ -10,9 +10,9 @@ pub use crate::inputs_and_outputs::{Inputs, Outputs};
 
 /// Trait defining the behavior of a custom operator.
 pub trait CustomOp {
-    /// Expected version of the ORT api.
-    const VERSION: u32;
     const NAME: &'static str;
+    /// Expected version of the ORT api.    
+    const VERSION: u32 = API_VERSION;
 
     type OpInputs<'s>: Inputs<'s>;
     type OpOutputs: Outputs;
@@ -44,14 +44,11 @@ where
         _op: *const OrtCustomOp,
         index: usize,
     ) -> ONNXTensorElementDataType {
-        <<T as CustomOp>::OpInputs<'_> as Inputs>::get_input_types().unwrap()[index]
-            .to_ort_encoding()
+        <<T as CustomOp>::OpInputs<'_> as Inputs>::INPUT_TYPES[index].to_ort_encoding()
     }
 
     extern "C" fn get_input_type_count<T: CustomOp>(_op: *const OrtCustomOp) -> usize {
-        <<T as CustomOp>::OpInputs<'_> as Inputs>::get_input_types()
-            .unwrap()
-            .len()
+        <<T as CustomOp>::OpInputs<'_> as Inputs>::CHARACTERISTICS.len()
     }
 
     extern "C" fn get_output_type<T: CustomOp>(
@@ -129,12 +126,28 @@ where
         OrtMemType_OrtMemTypeDefault
     }
 
-    extern "C" fn get_variadic_input_homogeneity(_op: *const OrtCustomOp) -> ::std::os::raw::c_int {
-        todo!()
+    extern "C" fn get_variadic_input_homogeneity<'s, T>(
+        _op: *const OrtCustomOp,
+    ) -> ::std::os::raw::c_int
+    where
+        T: CustomOp,
+        <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
+    {
+        if <<T as CustomOp>::OpInputs<'s> as Inputs>::VARIADIC_IS_HOMOGENEOUS {
+            1
+        } else {
+            0
+        }
     }
 
-    extern "C" fn get_variadic_input_min_arity(_op: *const OrtCustomOp) -> ::std::os::raw::c_int {
-        todo!()
+    extern "C" fn get_variadic_input_min_arity<'s, T>(
+        _op: *const OrtCustomOp,
+    ) -> ::std::os::raw::c_int
+    where
+        T: CustomOp,
+        <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
+    {
+        <<T as CustomOp>::OpInputs<'s> as Inputs>::VARIADIC_MIN_ARITY as _
     }
 
     extern "C" fn get_variadic_output_homogeneity(
@@ -164,8 +177,8 @@ where
         GetInputCharacteristic: Some(get_input_characteristic::<T>),
         GetOutputCharacteristic: Some(get_output_characteristic::<T>),
         GetInputMemoryType: Some(get_mem_type_default),
-        GetVariadicInputMinArity: Some(get_variadic_input_min_arity),
-        GetVariadicInputHomogeneity: Some(get_variadic_input_homogeneity),
+        GetVariadicInputMinArity: Some(get_variadic_input_min_arity::<T>),
+        GetVariadicInputHomogeneity: Some(get_variadic_input_homogeneity::<T>),
         GetVariadicOutputMinArity: Some(get_variadic_output_min_arity),
         GetVariadicOutputHomogeneity: Some(get_variadic_output_homogeneity),
     }

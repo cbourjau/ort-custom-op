@@ -5,7 +5,6 @@ use crate::bindings::{
     OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_VARIADIC, OrtKernelContext,
 };
 
-use anyhow::{bail, Result};
 use ndarray::{ArrayD, ArrayViewD};
 
 /// Trait which qualifies types to be used as input to the
@@ -13,12 +12,18 @@ use ndarray::{ArrayD, ArrayViewD};
 pub trait Inputs<'s> {
     const CHARACTERISTICS: &'static [OrtCustomOpInputOutputCharacteristic];
 
-    /// Get input types of this kernel.
+    // TODO: Make this configurable? Why does this even exists?!
+    const VARIADIC_MIN_ARITY: usize;
+
+    // Not clear why this exists...
+    const VARIADIC_IS_HOMOGENEOUS: bool;
+
+    /// Input types of this kernel.
     ///
-    /// Only applicable for non-variadic operators.
-    fn get_input_types() -> Result<Vec<ElementType>> {
-        unimplemented!()
-    }
+    /// Homogeneous variadic inputs have the `ElementType` of their
+    /// items. Heterogeneous variadic inputs have `Unknown` element
+    /// type.
+    const INPUT_TYPES: &'static [ElementType];
 
     fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext) -> Self;
 }
@@ -42,10 +47,10 @@ trait Input<'s> {
 trait LastInput<'s> {
     const CHARACTERISTIC: OrtCustomOpInputOutputCharacteristic;
 
-    /// Get input type.
-    ///
-    /// Only applicable for non-variadic kernels.
-    fn get_input_type() -> Result<ElementType>;
+    // TODO: Make this configurable?
+    const VARIADIC_MIN_ARITY: usize = 1;
+    const VARIADIC_IS_HOMOGENEOUS: bool;
+    const INPUT_TYPE: ElementType;
 
     fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext, idx: usize) -> Self;
 }
@@ -55,10 +60,9 @@ where
     T: Input<'s>,
 {
     const CHARACTERISTIC: OrtCustomOpInputOutputCharacteristic = T::CHARACTERISTIC;
-
-    fn get_input_type() -> Result<ElementType> {
-        Ok(<T as Input>::INPUT_TYPE)
-    }
+    // Not applicable
+    const VARIADIC_IS_HOMOGENEOUS: bool = false;
+    const INPUT_TYPE: ElementType = T::INPUT_TYPE;
 
     fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext, idx: usize) -> Self {
         T::from_ort(api, ctx, idx)
@@ -70,10 +74,8 @@ where
 {
     const CHARACTERISTIC: OrtCustomOpInputOutputCharacteristic =
         OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_VARIADIC;
-
-    fn get_input_type() -> Result<ElementType> {
-        bail!("Variadic inputs have no input type.")
-    }
+    const VARIADIC_IS_HOMOGENEOUS: bool = true;
+    const INPUT_TYPE: ElementType = T::INPUT_TYPE;
 
     fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext, first_idx: usize) -> Self {
         let n_total = api.get_input_count(ctx).expect("Retrieve number of inputs");
@@ -130,12 +132,12 @@ macro_rules! impl_inputs {
                 &[
                     $(<$param as Input>::CHARACTERISTIC,)* $last_param::CHARACTERISTIC
                 ];
+            const VARIADIC_MIN_ARITY: usize = $last_param::VARIADIC_MIN_ARITY;
+            const VARIADIC_IS_HOMOGENEOUS: bool = $last_param::VARIADIC_IS_HOMOGENEOUS;
 
-            fn get_input_types() -> Result<Vec<ElementType>> {
-                Ok(vec![
-                    $(<$param as Input>::INPUT_TYPE,)* $last_param::get_input_type()?
-                ])
-            }
+            const INPUT_TYPES: &'static [ElementType] = &[
+                $(<$param as Input>::INPUT_TYPE,)* $last_param::INPUT_TYPE
+            ];
 
             fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext) -> Self {
 
