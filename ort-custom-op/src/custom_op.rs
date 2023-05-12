@@ -6,7 +6,8 @@ use crate::bindings::{
     ONNXTensorElementDataType, OrtApi, OrtCustomOp, OrtCustomOpInputOutputCharacteristic,
     OrtKernelContext, OrtKernelInfo, OrtMemType, OrtMemType_OrtMemTypeDefault,
 };
-pub use crate::inputs_and_outputs::{Inputs, Outputs};
+pub use crate::inputs::Inputs;
+pub use crate::outputs::Outputs;
 
 /// Trait defining the behavior of a custom operator.
 pub trait CustomOp {
@@ -133,11 +134,7 @@ where
         T: CustomOp,
         <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
     {
-        if <<T as CustomOp>::OpInputs<'s> as Inputs>::VARIADIC_IS_HOMOGENEOUS {
-            1
-        } else {
-            0
-        }
+        i32::from(<<T as CustomOp>::OpInputs<'s> as Inputs>::VARIADIC_IS_HOMOGENEOUS)
     }
 
     extern "C" fn get_variadic_input_min_arity<'s, T>(
@@ -150,14 +147,22 @@ where
         <<T as CustomOp>::OpInputs<'s> as Inputs>::VARIADIC_MIN_ARITY as _
     }
 
-    extern "C" fn get_variadic_output_homogeneity(
+    extern "C" fn get_variadic_output_homogeneity<T>(
         _op: *const OrtCustomOp,
-    ) -> ::std::os::raw::c_int {
-        todo!()
+    ) -> ::std::os::raw::c_int
+    where
+        T: CustomOp,
+        <T as CustomOp>::OpOutputs: Outputs,
+    {
+        i32::from(<<T as CustomOp>::OpOutputs as Outputs>::VARIADIC_IS_HOMOGENEOUS)
     }
 
-    extern "C" fn get_variadic_output_min_arity(_op: *const OrtCustomOp) -> ::std::os::raw::c_int {
-        todo!()
+    extern "C" fn get_variadic_output_min_arity<T>(_op: *const OrtCustomOp) -> ::std::os::raw::c_int
+    where
+        T: CustomOp,
+        <T as CustomOp>::OpOutputs: Outputs,
+    {
+        <<T as CustomOp>::OpOutputs as Outputs>::VARIADIC_MIN_ARITY as _
     }
 
     OrtCustomOp {
@@ -179,8 +184,8 @@ where
         GetInputMemoryType: Some(get_mem_type_default),
         GetVariadicInputMinArity: Some(get_variadic_input_min_arity::<T>),
         GetVariadicInputHomogeneity: Some(get_variadic_input_homogeneity::<T>),
-        GetVariadicOutputMinArity: Some(get_variadic_output_min_arity),
-        GetVariadicOutputHomogeneity: Some(get_variadic_output_homogeneity),
+        GetVariadicOutputMinArity: Some(get_variadic_output_min_arity::<T>),
+        GetVariadicOutputHomogeneity: Some(get_variadic_output_homogeneity::<T>),
     }
 }
 

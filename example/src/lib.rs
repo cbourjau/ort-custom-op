@@ -4,12 +4,14 @@ mod add;
 mod attr_showcase;
 mod datetime;
 mod sum;
+mod variadic_identity;
 
 /// Static objects defining the custom operators
 const OP_ATTR_SHOWCASE: OrtCustomOp = build::<attr_showcase::AttrShowcase>();
 const OP_CUSTOM_ADD: OrtCustomOp = build::<add::CustomAdd>();
 const OP_CUSTOM_SUM: OrtCustomOp = build::<sum::CustomSum>();
 const OP_PARSE_DATETIME: OrtCustomOp = build::<datetime::ParseDateTime>();
+const OP_VARIADIC_IDENTITY: OrtCustomOp = build::<variadic_identity::VariadicIdentity>();
 
 /// Public function which onnxruntime expects to be in the shared library
 #[no_mangle]
@@ -26,6 +28,7 @@ pub extern "C" fn RegisterCustomOps(
             &OP_CUSTOM_ADD,
             &OP_CUSTOM_SUM,
             &OP_PARSE_DATETIME,
+            &OP_VARIADIC_IDENTITY,
         ],
     );
 

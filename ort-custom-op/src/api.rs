@@ -126,13 +126,6 @@ impl OrtApi {
         status_to_result(unsafe { fun(context, &mut out) }, self)?;
         Ok(out)
     }
-
-    pub(crate) fn get_output_count(&self, context: &OrtKernelContext) -> Result<usize> {
-        let fun = self.KernelContext_GetOutputCount.unwrap();
-        let mut out: usize = 0;
-        status_to_result(unsafe { fun(context, &mut out) }, self)?;
-        Ok(out)
-    }
 }
 
 impl OrtApi {

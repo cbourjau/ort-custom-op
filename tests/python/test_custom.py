@@ -155,6 +155,40 @@ def custom_sum_model():
 
 
 @pytest.fixture
+def variadic_identity_model():
+    # Using custom operators with the DSL (i.e. `onnx.parse`) for
+    # defining ONNX models seems to be unsupported...
+    node = helper.make_node(
+        "VariadicIdentity", ["A", "B"], ["C", "D"], domain="my.domain"
+    )
+    value_infos_input = [
+        helper.make_value_info(
+            "A", helper.make_tensor_type_proto(TensorProto.FLOAT, [None])
+        ),
+        helper.make_value_info(
+            "B", helper.make_tensor_type_proto(TensorProto.FLOAT, [None])
+        ),
+    ]
+    value_infos_output = [
+        helper.make_value_info(
+            "C", helper.make_tensor_type_proto(TensorProto.FLOAT, [None])
+        ),
+        helper.make_value_info(
+            "D", helper.make_tensor_type_proto(TensorProto.FLOAT, [None])
+        ),
+    ]
+    graph = helper.make_graph(
+        [node],
+        "graph",
+        value_infos_input,
+        value_infos_output,
+    )
+    return helper.make_model(
+        graph, opset_imports=[helper.make_opsetid("my.domain", 1)]
+    )
+
+
+@pytest.fixture
 def shared_lib() -> Path:
     if "macOS" in platform():
         file_name = "libexample.dylib"
@@ -226,3 +260,16 @@ def test_custom_sum(shared_lib, custom_sum_model):
     res = sess.run([output_name], inputs)
     output_expected = sum(inputs.values())
     np.testing.assert_allclose(output_expected, res[0], rtol=1e-05, atol=1e-08)
+
+
+def test_variadic_identity(shared_lib, variadic_identity_model):
+    sess = setup_session(shared_lib, variadic_identity_model)
+    # Run with input data
+    input_feed = {
+        "A": np.array([0], np.float32),
+        "B": np.array([0], np.float32),
+    }
+    c, d = sess.run(None, input_feed)
+    a, b = input_feed.values()
+    np.testing.assert_equal(a, c)
+    np.testing.assert_equal(b, d)
