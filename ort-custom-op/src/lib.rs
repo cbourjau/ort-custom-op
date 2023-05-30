@@ -2,7 +2,8 @@ mod api;
 mod bindings;
 mod custom_op;
 mod error;
-mod inputs_and_outputs;
+mod inputs;
+mod outputs;
 
 pub mod prelude {
     pub use crate::api::{create_custom_op_domain, KernelInfo};

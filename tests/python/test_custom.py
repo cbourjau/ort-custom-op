@@ -33,7 +33,9 @@ def custom_add_model():
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
+    return helper.make_model(
+        graph, opset_imports=[helper.make_opsetid("my.domain", 1)]
+    )
 
 
 @pytest.fixture
@@ -63,7 +65,9 @@ def parse_datetime_model():
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
+    return helper.make_model(
+        graph, opset_imports=[helper.make_opsetid("my.domain", 1)]
+    )
 
 
 @pytest.fixture
@@ -111,7 +115,77 @@ def attr_showcase_model():
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
+    return helper.make_model(
+        graph, opset_imports=[helper.make_opsetid("my.domain", 1)]
+    )
+
+
+@pytest.fixture
+def custom_sum_model():
+    # Using custom operators with the DSL (i.e. `onnx.parse`) for
+    # defining ONNX models seems to be unsupported...
+    node = helper.make_node(
+        "CustomSum", ["A", "B", "C"], ["D"], domain="my.domain"
+    )
+    value_infos_input = [
+        helper.make_value_info(
+            "A", helper.make_tensor_type_proto(TensorProto.FLOAT, [None, None])
+        ),
+        helper.make_value_info(
+            "B", helper.make_tensor_type_proto(TensorProto.FLOAT, [None, None])
+        ),
+        helper.make_value_info(
+            "C", helper.make_tensor_type_proto(TensorProto.FLOAT, [None, None])
+        ),
+    ]
+    value_infos_output = [
+        helper.make_value_info(
+            "D", helper.make_tensor_type_proto(TensorProto.FLOAT, [None, None])
+        ),
+    ]
+    graph = helper.make_graph(
+        [node],
+        "graph",
+        value_infos_input,
+        value_infos_output,
+    )
+    return helper.make_model(
+        graph, opset_imports=[helper.make_opsetid("my.domain", 1)]
+    )
+
+
+@pytest.fixture
+def variadic_identity_model():
+    # Using custom operators with the DSL (i.e. `onnx.parse`) for
+    # defining ONNX models seems to be unsupported...
+    node = helper.make_node(
+        "VariadicIdentity", ["A", "B"], ["C", "D"], domain="my.domain"
+    )
+    value_infos_input = [
+        helper.make_value_info(
+            "A", helper.make_tensor_type_proto(TensorProto.FLOAT, [None])
+        ),
+        helper.make_value_info(
+            "B", helper.make_tensor_type_proto(TensorProto.FLOAT, [None])
+        ),
+    ]
+    value_infos_output = [
+        helper.make_value_info(
+            "C", helper.make_tensor_type_proto(TensorProto.FLOAT, [None])
+        ),
+        helper.make_value_info(
+            "D", helper.make_tensor_type_proto(TensorProto.FLOAT, [None])
+        ),
+    ]
+    graph = helper.make_graph(
+        [node],
+        "graph",
+        value_infos_input,
+        value_infos_output,
+    )
+    return helper.make_model(
+        graph, opset_imports=[helper.make_opsetid("my.domain", 1)]
+    )
 
 
 @pytest.fixture
@@ -122,7 +196,7 @@ def shared_lib() -> Path:
         file_name = "libexample.so"
     path = ROOT / f"target/debug/deps/{file_name}"
     if not path.exists():
-        raise FileNotFoundError("Unable to find '{0}'".format(shared_library))
+        raise FileNotFoundError("Unable to find '{0}'".format(path))
     return path
 
 
@@ -175,3 +249,27 @@ def test_attr_showcase(shared_lib, attr_showcase_model):
     np.testing.assert_equal(a, np.array([3.14], np.float32))
     np.testing.assert_equal(b, [42])
     np.testing.assert_equal(c, ["foo + bar"])
+
+
+def test_custom_sum(shared_lib, custom_sum_model):
+    sess = setup_session(shared_lib, custom_sum_model)
+    # Run with input data
+    input_names = [inp.name for inp in sess.get_inputs()]
+    output_name = sess.get_outputs()[0].name
+    inputs = {n: np.ones((3, 5)).astype(np.float32) for n in input_names}
+    res = sess.run([output_name], inputs)
+    output_expected = sum(inputs.values())
+    np.testing.assert_allclose(output_expected, res[0], rtol=1e-05, atol=1e-08)
+
+
+def test_variadic_identity(shared_lib, variadic_identity_model):
+    sess = setup_session(shared_lib, variadic_identity_model)
+    # Run with input data
+    input_feed = {
+        "A": np.array([0], np.float32),
+        "B": np.array([0], np.float32),
+    }
+    c, d = sess.run(None, input_feed)
+    a, b = input_feed.values()
+    np.testing.assert_equal(a, c)
+    np.testing.assert_equal(b, d)

@@ -1,16 +1,16 @@
 use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
 
-use crate::api::KernelInfo;
+use crate::api::{KernelInfo, API_VERSION};
 use crate::bindings::{
     ONNXTensorElementDataType, OrtApi, OrtCustomOp, OrtCustomOpInputOutputCharacteristic,
-    OrtKernelContext, OrtKernelInfo,
+    OrtKernelContext, OrtKernelInfo, OrtMemType, OrtMemType_OrtMemTypeDefault,
 };
-pub use crate::inputs_and_outputs::{Inputs, Outputs};
+pub use crate::inputs::Inputs;
+pub use crate::outputs::Outputs;
 
 /// Trait defining the behavior of a custom operator.
 pub trait CustomOp {
-    const VERSION: u32;
     const NAME: &'static str;
 
     type OpInputs<'s>: Inputs<'s>;
@@ -43,22 +43,22 @@ where
         _op: *const OrtCustomOp,
         index: usize,
     ) -> ONNXTensorElementDataType {
-        <<T as CustomOp>::OpInputs<'_> as Inputs>::INPUT_TYPES[index as usize].to_ort_encoding()
+        <<T as CustomOp>::OpInputs<'_> as Inputs>::INPUT_TYPES[index].to_ort_encoding()
     }
 
     extern "C" fn get_input_type_count<T: CustomOp>(_op: *const OrtCustomOp) -> usize {
-        <<T as CustomOp>::OpInputs<'_> as Inputs>::INPUT_TYPES.len() as _
+        <<T as CustomOp>::OpInputs<'_> as Inputs>::CHARACTERISTICS.len()
     }
 
     extern "C" fn get_output_type<T: CustomOp>(
         _op: *const OrtCustomOp,
         index: usize,
     ) -> ONNXTensorElementDataType {
-        <<T as CustomOp>::OpOutputs as Outputs>::OUTPUT_TYPES[index as usize].to_ort_encoding()
+        <<T as CustomOp>::OpOutputs as Outputs>::OUTPUT_TYPES[index].to_ort_encoding()
     }
 
     extern "C" fn get_output_type_count<T: CustomOp>(_op: *const OrtCustomOp) -> usize {
-        <<T as CustomOp>::OpOutputs as Outputs>::OUTPUT_TYPES.len() as _
+        <<T as CustomOp>::OpOutputs as Outputs>::OUTPUT_TYPES.len()
     }
 
     unsafe extern "C" fn create_kernel<T: CustomOp>(
@@ -99,22 +99,75 @@ where
         drop(Box::from_raw(op_kernel as *mut WrappedKernel<T>));
     }
 
-    extern "C" fn get_input_characteristic(
+    extern "C" fn get_input_characteristic<'s, T>(
         _op: *const OrtCustomOp,
-        _index: usize,
-    ) -> OrtCustomOpInputOutputCharacteristic {
-        unimplemented!()
+        index: usize,
+    ) -> OrtCustomOpInputOutputCharacteristic
+    where
+        T: CustomOp,
+        <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
+    {
+        <<T as CustomOp>::OpInputs<'s> as Inputs>::CHARACTERISTICS[index]
     }
 
-    extern "C" fn get_output_characteristic(
+    extern "C" fn get_output_characteristic<T>(
         _op: *const OrtCustomOp,
-        _index: usize,
-    ) -> OrtCustomOpInputOutputCharacteristic {
-        unimplemented!()
+        index: usize,
+    ) -> OrtCustomOpInputOutputCharacteristic
+    where
+        T: CustomOp,
+        <T as CustomOp>::OpOutputs: Outputs,
+    {
+        <<T as CustomOp>::OpOutputs as Outputs>::CHARACTERISTICS[index]
+    }
+
+    extern "C" fn get_mem_type_default(_op: *const OrtCustomOp, _index: usize) -> OrtMemType {
+        OrtMemType_OrtMemTypeDefault
+    }
+
+    extern "C" fn get_variadic_input_homogeneity<'s, T>(
+        _op: *const OrtCustomOp,
+    ) -> ::std::os::raw::c_int
+    where
+        T: CustomOp,
+        <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
+    {
+        i32::from(<<T as CustomOp>::OpInputs<'s> as Inputs>::VARIADIC_IS_HOMOGENEOUS)
+    }
+
+    extern "C" fn get_variadic_input_min_arity<'s, T>(
+        _op: *const OrtCustomOp,
+    ) -> ::std::os::raw::c_int
+    where
+        T: CustomOp,
+        <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
+    {
+        <<T as CustomOp>::OpInputs<'s> as Inputs>::VARIADIC_MIN_ARITY as _
+    }
+
+    extern "C" fn get_variadic_output_homogeneity<T>(
+        _op: *const OrtCustomOp,
+    ) -> ::std::os::raw::c_int
+    where
+        T: CustomOp,
+        <T as CustomOp>::OpOutputs: Outputs,
+    {
+        i32::from(<<T as CustomOp>::OpOutputs as Outputs>::VARIADIC_IS_HOMOGENEOUS)
+    }
+
+    extern "C" fn get_variadic_output_min_arity<T>(_op: *const OrtCustomOp) -> ::std::os::raw::c_int
+    where
+        T: CustomOp,
+        <T as CustomOp>::OpOutputs: Outputs,
+    {
+        <<T as CustomOp>::OpOutputs as Outputs>::VARIADIC_MIN_ARITY as _
     }
 
     OrtCustomOp {
-        version: T::VERSION,
+        // This is the API version, not the version of the
+        // operator. It is currently not clear to me how one defines a
+        // version for an operator.
+        version: API_VERSION,
         CreateKernel: Some(create_kernel::<T>),
         GetName: Some(get_name::<T>),
         GetExecutionProviderType: Some(get_execution_provider_type::<T>),
@@ -124,8 +177,13 @@ where
         GetOutputTypeCount: Some(get_output_type_count::<T>),
         KernelCompute: Some(kernel_compute::<T>),
         KernelDestroy: Some(kernel_destroy::<T>),
-        GetInputCharacteristic: Some(get_input_characteristic),
-        GetOutputCharacteristic: Some(get_output_characteristic),
+        GetInputCharacteristic: Some(get_input_characteristic::<T>),
+        GetOutputCharacteristic: Some(get_output_characteristic::<T>),
+        GetInputMemoryType: Some(get_mem_type_default),
+        GetVariadicInputMinArity: Some(get_variadic_input_min_arity::<T>),
+        GetVariadicInputHomogeneity: Some(get_variadic_input_homogeneity::<T>),
+        GetVariadicOutputMinArity: Some(get_variadic_output_min_arity::<T>),
+        GetVariadicOutputHomogeneity: Some(get_variadic_output_homogeneity::<T>),
     }
 }
 
