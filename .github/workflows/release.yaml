@@ -1,7 +1,6 @@
 name: Publish to crates.io
 
 on:
-  pull_request:
   release:
     types:
       - published
