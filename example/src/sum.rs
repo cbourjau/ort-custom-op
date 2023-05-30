@@ -2,7 +2,7 @@ use ndarray::{ArrayD, ArrayViewD};
 
 use ort_custom_op::prelude::*;
 
-/// A custom operator which adds its two inputs
+/// A custom operator which adds a variadic number of inputs
 pub struct CustomSum;
 
 impl CustomOp for CustomSum {

@@ -12,8 +12,6 @@ pub use crate::outputs::Outputs;
 /// Trait defining the behavior of a custom operator.
 pub trait CustomOp {
     const NAME: &'static str;
-    /// Expected version of the ORT api.    
-    const VERSION: u32 = API_VERSION;
 
     type OpInputs<'s>: Inputs<'s>;
     type OpOutputs: Outputs;

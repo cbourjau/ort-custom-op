@@ -112,7 +112,7 @@ impl<'s> Input<'s> for ArrayD<String> {
 }
 
 macro_rules! impl_inputs {
-    ($($idx:literal, $param:tt);* | $last_idx:literal, $last_param:tt ) => {
+    ($($idx:literal: $param:tt),* | $last_idx:literal: $last_param:tt ) => {
         impl<'s, $($param,)* $last_param> Inputs<'s> for ($($param,)* $last_param, )
         where
             $($param : Input<'s>,)*
@@ -139,11 +139,14 @@ macro_rules! impl_inputs {
         }
     };
 }
-impl_inputs! {|0, A}
-impl_inputs! {0, A | 1, B}
-impl_inputs! {0, A; 1, B | 2, C}
-// impl_inputs! {0, 1; A, B}
-// impl_inputs! {0, 1, 2; A, B, C}
-// impl_inputs! {0, 1, 2, 3; A, B, C, D}
-// impl_inputs! {0, 1, 2, 3, 4; A, B, C, D, E}
-// impl_inputs! {0, 1, 2, 3, 4, 5; A, B, C, D, E, F}
+impl_inputs! {|0: Z}
+impl_inputs! {0: A | 1: Z}
+impl_inputs! {0: A, 1: B | 2: Z}
+impl_inputs! {0: A, 1: B, 2: C | 3: Z}
+impl_inputs! {0: A, 1: B, 2: C, 3: D | 4: Z}
+impl_inputs! {0: A, 1: B, 2: C, 3: D, 4: E | 5: Z}
+impl_inputs! {0: A, 1: B, 2: C, 3: D, 4: E, 5: F | 6: Z}
+impl_inputs! {0: A, 1: B, 2: C, 3: D, 4: E, 5: F, 6: G | 7: Z}
+impl_inputs! {0: A, 1: B, 2: C, 3: D, 4: E, 5: F, 6: G, 7: H | 8: Z}
+impl_inputs! {0: A, 1: B, 2: C, 3: D, 4: E, 5: F, 6: G, 7: H, 8: I | 9: Z}
+impl_inputs! {0: A, 1: B, 2: C, 3: D, 4: E, 5: F, 6: G, 7: H, 8: I, 9: J | 10: Z}

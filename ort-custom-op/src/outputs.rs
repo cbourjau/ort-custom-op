@@ -66,10 +66,8 @@ impl_output_non_string!(u32, U32);
 impl_output_non_string!(u64, U64);
 impl_output_non_string!(u8, U8);
 
-// TODO: Impl string output
-
 macro_rules! impl_outputs {
-    (($($idx:tt, $param:tt);*) | $last_idx:tt, $last_param:tt ) => {
+    (($($idx:tt: $param:tt),*) | $last_idx:tt: $last_param:tt ) => {
         impl<$($param,)* $last_param> Outputs for ($($param,)* $last_param, )
         where
             $($param : Output,)*
@@ -95,14 +93,17 @@ macro_rules! impl_outputs {
     };
 }
 
-impl_outputs! {()|0, A}
-impl_outputs! {(0, A) | 1, B}
-impl_outputs! {(0, A; 1, B) | 2, C}
-// impl_inputs! {0, 1; A, B}
-// impl_inputs! {0, 1, 2; A, B, C}
-// impl_inputs! {0, 1, 2, 3; A, B, C, D}
-// impl_inputs! {0, 1, 2, 3, 4; A, B, C, D, E}
-// impl_inputs! {0, 1, 2, 3, 4, 5; A, B, C, D, E, F}
+impl_outputs! {()|0: Z}
+impl_outputs! {(0: A )| 1: Z}
+impl_outputs! {(0: A, 1: B )| 2: Z}
+impl_outputs! {(0: A, 1: B, 2: C )| 3: Z}
+impl_outputs! {(0: A, 1: B, 2: C, 3: D )| 4: Z}
+impl_outputs! {(0: A, 1: B, 2: C, 3: D, 4: E )| 5: Z}
+impl_outputs! {(0: A, 1: B, 2: C, 3: D, 4: E, 5: F )| 6: Z}
+impl_outputs! {(0: A, 1: B, 2: C, 3: D, 4: E, 5: F, 6: G )| 7: Z}
+impl_outputs! {(0: A, 1: B, 2: C, 3: D, 4: E, 5: F, 6: G, 7: H )| 8: Z}
+impl_outputs! {(0: A, 1: B, 2: C, 3: D, 4: E, 5: F, 6: G, 7: H, 8: I )| 9: Z}
+impl_outputs! {(0: A, 1: B, 2: C, 3: D, 4: E, 5: F, 6: G, 7: H, 8: I, 9: J )| 10: Z}
 
 trait LastOutput {
     const CHARACTERISTIC: OrtCustomOpInputOutputCharacteristic;
