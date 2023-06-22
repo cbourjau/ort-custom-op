@@ -6,7 +6,7 @@ use crate::error::ErrorStatusPtr;
 use anyhow::Result;
 use ndarray::{Array, ArrayD, ArrayView, ArrayViewD, ArrayViewMut, ArrayViewMutD};
 
-pub const API_VERSION: u32 = 14;
+pub const API_VERSION: u32 = 16;
 
 #[derive(Debug)]
 pub struct KernelInfo<'s> {
