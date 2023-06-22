@@ -11,15 +11,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
-    - run: python -m pip install --upgrade pip
-    - run: pip install -r requirements.txt
-    - name: Build
-      run: cargo build --verbose
-    - name: Run Rust tests
-      run: cargo test --verbose
-    - name: Run Python tests
-      run: cargo build && pytest tests/python -s
+      - uses: actions/checkout@v3
+
+      - name: git checkout
+        uses: actions/checkout@v3
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+      - name: Run tests
+        run: |
+          nix develop --command \
+          cargo test
+      - name: Build release
+        run: |
+          nix develop --command \
+          cargo build --release
+      - name: Run Python tests
+        run: |
+          nix develop --command \
+          pytest tests/python

@@ -3,7 +3,7 @@
 
   # Flake inputs
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs"; # also valid: "nixpkgs"
+    nixpkgs.url = "github:cbourjau/nixpkgs/onnxruntime-macos"; # also valid: "nixpkgs"
     rust-overlay.url = "github:oxalica/rust-overlay"; # A helper for Rust + Nix
   };
 
@@ -18,6 +18,19 @@
         # create a Rust environment
         (self: super: {
           rustToolchain = super.rust-bin.stable.latest.default;
+        })
+
+
+        (final: prev: {
+          onnxruntime = prev.onnxruntime.overrideAttrs (oldAttrs: {
+            src = prev.fetchFromGitHub {
+              owner = "cbourjau";
+              repo = "onnxruntime";
+              rev = "7e9114adf498727cd84955ae2cc8afc93eb64b5a";
+              sha256 = "sha256-35IJw2QgwA7PNk5/RmYAKzUVZIp77x7b9y0hao+219Q=";
+              fetchSubmodules = true;
+            };
+          });
         })
       ];
 
@@ -36,29 +49,25 @@
     in
     {
       # Development environment output
-      devShells = forAllSystems ({ pkgs }: {
-        default = pkgs.mkShell {
-          # The Nix packages provided in the environment
-          packages = (with pkgs; [
-                python3
-                python310Packages.flake8
-                mypy
-                black
-                micromamba
-                # The package provided by our custom overlay. Includes cargo, Clippy, cargo-fmt,
-                # rustdoc, rustfmt, and other tools.
-                rustToolchain
-          ]) ++ pkgs.lib.optionals pkgs.stdenv.isDarwin (with pkgs; [ libiconv ]);
-          shellHook = ''
-            eval "$(micromamba shell hook --shell=posix)"
-
-            mkdir -p envs
-            if [ ! -d "envs/env" ]; then
-                micromamba create -p envs/env
-            fi
-            micromamba activate -p envs/env
-          '';
-        };
-      });
+      devShells = forAllSystems ({ pkgs }:
+        let
+        in
+        {
+          default = pkgs.mkShell {
+            # The Nix packages provided in the environment
+            packages = (with pkgs; [
+              python3
+              python310Packages.flake8
+              python310Packages.pytest
+              python310Packages.onnx
+              python310Packages.onnxruntime
+              mypy
+              black
+              # The package provided by our custom overlay. Includes cargo, Clippy, cargo-fmt,
+              # rustdoc, rustfmt, and other tools.
+              rustToolchain
+            ]) ++ pkgs.lib.optionals pkgs.stdenv.isDarwin (with pkgs; [ libiconv ]);
+          };
+        });
     };
 }

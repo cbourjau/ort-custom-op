@@ -17,15 +17,16 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1680532033,
-        "narHash": "sha256-eAF1bsFQXNhVOjHUqF6BYdZ0W45cXJmy7SFoL0EO82w=",
-        "owner": "NixOS",
+        "lastModified": 1687206582,
+        "narHash": "sha256-zn4VeembUDcl0t4casub9nYiFlFqbhhyEf8MFq5n+xY=",
+        "owner": "cbourjau",
         "repo": "nixpkgs",
-        "rev": "e863220fb989fc63c140df98a060d4ec1e3a72aa",
+        "rev": "9b2e745bdca7ef01f65a7b53fd33e779415896e4",
         "type": "github"
       },
       "original": {
-        "owner": "NixOS",
+        "owner": "cbourjau",
+        "ref": "onnxruntime-macos",
         "repo": "nixpkgs",
         "type": "github"
       }
