@@ -1,41 +1,49 @@
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::fmt;
 
 use crate::bindings::{OrtApi, OrtStatus, OrtStatusPtr};
 
 #[derive(Debug)]
-pub struct ErrorStatusPtr {
+pub struct ErrorStatus {
     msg: String,
-    status: &'static mut OrtStatus,
+    code: u32,
 }
 
-impl ErrorStatusPtr {
-    pub fn new(ptr: OrtStatusPtr, api: &OrtApi) -> Self {
-        let cstr_ptr = unsafe { api.GetErrorMessage.unwrap()(ptr) };
-        let msg = unsafe { CString::from_raw(cstr_ptr as *mut _) }
-            .into_string()
-            .unwrap();
-        Self {
-            status: unsafe { ptr.as_mut().unwrap() },
-            msg,
-        }
-    }
-
-    pub fn into_pointer(self) -> OrtStatusPtr {
-        self.status
+/// Wraps a status pointer into a result.
+///
+///A null pointer is mapped to `Ok(())`.
+pub fn status_to_result(ptr: OrtStatusPtr, api: &OrtApi) -> Result<(), ErrorStatus> {
+    if ptr.is_null() {
+        Ok(())
+    } else {
+        Err(ErrorStatus::new(ptr, api))
     }
 }
 
-impl fmt::Display for ErrorStatusPtr {
+impl ErrorStatus {
+    /// Consume the given OrtStatusPtr (freeing it).
+    pub fn new(ptr: *mut OrtStatus, api: &OrtApi) -> Self {
+        let msg = {
+            let cstr_ptr = unsafe { api.GetErrorMessage.unwrap()(ptr) };
+            unsafe { CStr::from_ptr(cstr_ptr as *mut _) }
+                .to_str()
+                .unwrap()
+                .to_string()
+        };
+        let code = { unsafe { api.GetErrorCode.unwrap()(ptr) } };
+
+        unsafe { api.ReleaseStatus.unwrap()(ptr) };
+
+        Self { msg, code }
+    }
+}
+
+impl fmt::Display for ErrorStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "non-null status: {:?}", self.msg)
+        // We must not deallocate the returned string, hence the cstr.
+
+        write!(f, "{:?}", self.msg)
     }
 }
 
-impl std::error::Error for ErrorStatusPtr {}
-
-// fn create_error_status<'s>(api: &'s OrtApi, code: u32, msg: &str) -> Result<(), ErrorStatusPtr> {
-//     let c_char_ptr = str_to_c_char_ptr(msg);
-//     let ptr = unsafe { api.CreateStatus.unwrap()(code, c_char_ptr) };
-//     status_to_result(ptr, api)
-// }
+impl std::error::Error for ErrorStatus {}

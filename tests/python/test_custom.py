@@ -188,6 +188,37 @@ def variadic_identity_model():
     )
 
 
+def fallible_model(with_attr: bool):
+    # Using custom operators with the DSL (i.e. `onnx.parse`) for
+    # defining ONNX models seems to be unsupported...
+    node = helper.make_node(
+        "FallibleOp",
+        ["fail"],
+        ["out"],
+        domain="my.domain",
+        **({"important_attribute": 1} if with_attr else {})  # type: ignore
+    )
+    value_infos_input = [
+        helper.make_value_info(
+            "fail", helper.make_tensor_type_proto(TensorProto.BOOL, [])
+        ),
+    ]
+    value_infos_output = [
+        helper.make_value_info(
+            "out", helper.make_tensor_type_proto(TensorProto.BOOL, [])
+        ),
+    ]
+    graph = helper.make_graph(
+        [node],
+        "graph",
+        value_infos_input,
+        value_infos_output,
+    )
+    return helper.make_model(
+        graph, opset_imports=[helper.make_opsetid("my.domain", 1)]
+    )
+
+
 @pytest.fixture
 def shared_lib() -> Path:
     if "macOS" in platform():
@@ -204,6 +235,7 @@ def setup_session(shared_lib: Path, model) -> onnxrt.InferenceSession:
     onnxrt.set_default_logger_severity(3)
     so = onnxrt.SessionOptions()
     so.register_custom_ops_library(str(shared_lib))
+    so.log_severity_level = 0
 
     # Model loading successfully indicates that the custom op node
     # could be resolved successfully
@@ -273,3 +305,20 @@ def test_variadic_identity(shared_lib, variadic_identity_model):
     a, b = input_feed.values()
     np.testing.assert_equal(a, c)
     np.testing.assert_equal(b, d)
+
+
+def test_fail_create_kernel(shared_lib):
+    model = fallible_model(with_attr=False)
+    print(model)
+    sess = setup_session(shared_lib, model)
+    sess.run(None, {"fail": np.array(True)})
+
+
+def test_upstream_model():
+    import onnx
+    path = "/Users/c.bourjau/repos/onnxruntime/onnxruntime/test/testdata/custom_op_library/custom_op_test.onnx"
+
+    model = onnx.load_model(path)
+    shared_lib = Path("/Users/c.bourjau/repos/onnxruntime/build/Debug/libcustom_op_library.dylib")
+    setup_session(shared_lib, model)
+

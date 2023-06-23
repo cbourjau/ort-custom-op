@@ -1,7 +1,7 @@
 use std::ffi::CString;
 
 use crate::bindings::*;
-use crate::error::ErrorStatusPtr;
+use crate::error::{status_to_result, ErrorStatus};
 
 use anyhow::Result;
 use ndarray::{Array, ArrayD, ArrayView, ArrayViewD, ArrayViewMut, ArrayViewMutD};
@@ -33,7 +33,7 @@ pub fn create_custom_op_domain(
     api_base: &mut OrtApiBase,
     domain: &str,
     ops: &[&'static OrtCustomOp],
-) -> Result<(), ErrorStatusPtr> {
+) -> OrtStatusPtr {
     let api = unsafe { api_base.GetApi.unwrap()(API_VERSION).as_ref().unwrap() };
 
     let fun_ptr = api.CreateCustomOpDomain.unwrap();
@@ -43,17 +43,23 @@ pub fn create_custom_op_domain(
     let c_op_domain = CString::new(domain).unwrap().into_raw();
     let domain = unsafe {
         // According to docs: "Must be freed with OrtApi::ReleaseCustomOpDomain"
-        status_to_result(fun_ptr(c_op_domain, &mut domain_ptr), api)?;
-        status_to_result(
-            api.AddCustomOpDomain.unwrap()(session_options, domain_ptr),
-            api,
-        )?;
+        let ptr = fun_ptr(c_op_domain, &mut domain_ptr);
+        if !ptr.is_null() {
+            return ptr;
+        }
+        let ptr = api.AddCustomOpDomain.unwrap()(session_options, domain_ptr);
+        if !ptr.is_null() {
+            return ptr;
+        }
         domain_ptr.as_mut().unwrap()
     };
     for op in ops {
-        add_op_to_domain(api, domain, op)?;
+        let ptr = add_op_to_domain(api, domain, op);
+        if !ptr.is_null() {
+            return ptr;
+        }
     }
-    Ok(())
+    std::ptr::null_mut()
 }
 
 /// Explicit struct around OrtTypeAndShapeInfo pointer since we are
@@ -427,18 +433,7 @@ fn add_op_to_domain(
     api: &OrtApi,
     domain: &mut OrtCustomOpDomain,
     op: &'static OrtCustomOp,
-) -> Result<(), ErrorStatusPtr> {
+) -> OrtStatusPtr {
     let fun_ptr = api.CustomOpDomain_Add.unwrap();
-    status_to_result(unsafe { fun_ptr(domain, op) }, api)
-}
-
-/// Wraps a status pointer into a result.
-///
-///A null pointer is mapped to the `Ok(())`.
-fn status_to_result(ptr: OrtStatusPtr, api: &OrtApi) -> Result<(), ErrorStatusPtr> {
-    if ptr.is_null() {
-        Ok(())
-    } else {
-        Err(ErrorStatusPtr::new(ptr, api))
-    }
+    unsafe { fun_ptr(domain, op) }
 }

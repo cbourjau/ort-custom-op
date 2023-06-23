@@ -36,6 +36,7 @@ pub const fn build<'s, T>() -> OrtCustomOp
 where
     T: CustomOp,
     <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
+    <T as CustomOp>::KernelCreateError: std::fmt::Display,
 {
     extern "C" fn get_name<T: CustomOp>(_op: *const OrtCustomOp) -> *const c_char {
         CString::new(T::NAME).unwrap().into_raw()
@@ -74,10 +75,21 @@ where
         ort_api: *const OrtApi,
         ort_info: *const OrtKernelInfo,
         kernel: *mut *mut c_void,
-    ) -> *mut OrtStatus {
+    ) -> *mut OrtStatus
+    where
+        <T as CustomOp>::KernelCreateError: std::fmt::Display,
+    {
         let api = &*ort_api;
         let info = KernelInfo::from_ort(api, &*ort_info);
-        let user_kernel = T::kernel_create(&info);
+        let user_kernel = match T::kernel_create(&info) {
+            Ok(kernel) => kernel,
+            Err(err) => {
+                *kernel = std::ptr::null_mut();
+                // msg is copied inside `CreateStatus`
+                let msg = CString::new(format!("{}", err)).unwrap();
+                return api.CreateStatus.unwrap()(OrtErrorCode_ORT_RUNTIME_EXCEPTION, msg.as_ptr());
+            }
+        };
         let wrapped_kernel = WrappedKernel { user_kernel, api };
 
         *kernel = Box::leak(Box::new(wrapped_kernel)) as *mut _ as *mut c_void;
@@ -109,10 +121,10 @@ where
                 outputs.write_to_ort(api, out_context);
                 return std::ptr::null_mut();
             }
-            Err(err) => api.CreateStatus.unwrap()(
+            Err(err) => dbg!(api.CreateStatus.unwrap()(
                 OrtErrorCode_ORT_RUNTIME_EXCEPTION,
-                CString::new("").unwrap().into_raw(),
-            ),
+                CString::new("foobar baz!").unwrap().into_raw(),
+            )),
         }
     }
 
@@ -180,6 +192,7 @@ where
     where
         T: CustomOp,
         <T as CustomOp>::OpOutputs: Outputs,
+        <T as CustomOp>::KernelCreateError: std::fmt::Display,
     {
         <<T as CustomOp>::OpOutputs as Outputs>::VARIADIC_MIN_ARITY as _
     }
@@ -205,7 +218,7 @@ where
         GetVariadicInputHomogeneity: Some(get_variadic_input_homogeneity::<T>),
         GetVariadicOutputMinArity: Some(get_variadic_output_min_arity::<T>),
         GetVariadicOutputHomogeneity: Some(get_variadic_output_homogeneity::<T>),
-        CreateKernelFallible: Some(create_kernel_fallible::<T>), // Some(kernel_compute_fallible::<T>),
+        CreateKernelFallible: Some(create_kernel_fallible::<T>),
         KernelComputeFallible: Some(kernel_compute_fallible::<T>),
     }
 }
