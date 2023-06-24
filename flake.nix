@@ -26,8 +26,8 @@
             src = prev.fetchFromGitHub {
               owner = "cbourjau";
               repo = "onnxruntime";
-              rev = "7e9114adf498727cd84955ae2cc8afc93eb64b5a";
-              sha256 = "sha256-35IJw2QgwA7PNk5/RmYAKzUVZIp77x7b9y0hao+219Q=";
+              rev = "8397f8c7de29b62f25c658efd77c326a7ebba27b";
+              sha256 = "sha256-ub3Gk0Y20W+yfAqQxKNXMV4vMEgNug9ZgnAqcxrLI8A=";
               fetchSubmodules = true;
             };
           });
