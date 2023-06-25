@@ -1,4 +1,4 @@
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::fmt;
 
 use crate::bindings::{OrtApi, OrtStatus, OrtStatusPtr};
@@ -6,7 +6,7 @@ use crate::bindings::{OrtApi, OrtStatus, OrtStatusPtr};
 #[derive(Debug)]
 pub struct ErrorStatus {
     msg: String,
-    code: u32,
+    _code: u32,
 }
 
 /// Wraps a status pointer into a result.
@@ -30,11 +30,11 @@ impl ErrorStatus {
                 .unwrap()
                 .to_string()
         };
-        let code = { unsafe { api.GetErrorCode.unwrap()(ptr) } };
+        let _code = { unsafe { api.GetErrorCode.unwrap()(ptr) } };
 
         unsafe { api.ReleaseStatus.unwrap()(ptr) };
 
-        Self { msg, code }
+        Self { msg, _code }
     }
 }
 

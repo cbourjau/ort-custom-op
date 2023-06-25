@@ -33,9 +33,7 @@ def custom_add_model():
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(
-        graph, opset_imports=[helper.make_opsetid("my.domain", 1)]
-    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
 
 
 @pytest.fixture
@@ -65,9 +63,7 @@ def parse_datetime_model():
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(
-        graph, opset_imports=[helper.make_opsetid("my.domain", 1)]
-    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
 
 
 @pytest.fixture
@@ -115,18 +111,14 @@ def attr_showcase_model():
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(
-        graph, opset_imports=[helper.make_opsetid("my.domain", 1)]
-    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
 
 
 @pytest.fixture
 def custom_sum_model():
     # Using custom operators with the DSL (i.e. `onnx.parse`) for
     # defining ONNX models seems to be unsupported...
-    node = helper.make_node(
-        "CustomSum", ["A", "B", "C"], ["D"], domain="my.domain"
-    )
+    node = helper.make_node("CustomSum", ["A", "B", "C"], ["D"], domain="my.domain")
     value_infos_input = [
         helper.make_value_info(
             "A", helper.make_tensor_type_proto(TensorProto.FLOAT, [None, None])
@@ -149,9 +141,7 @@ def custom_sum_model():
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(
-        graph, opset_imports=[helper.make_opsetid("my.domain", 1)]
-    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
 
 
 @pytest.fixture
@@ -183,9 +173,7 @@ def variadic_identity_model():
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(
-        graph, opset_imports=[helper.make_opsetid("my.domain", 1)]
-    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
 
 
 def fallible_model(with_attr: bool):
@@ -196,7 +184,7 @@ def fallible_model(with_attr: bool):
         ["fail"],
         ["out"],
         domain="my.domain",
-        **({"important_attribute": 1} if with_attr else {})  # type: ignore
+        **({"required_attr": 1} if with_attr else {}),  # type: ignore
     )
     value_infos_input = [
         helper.make_value_info(
@@ -214,9 +202,7 @@ def fallible_model(with_attr: bool):
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(
-        graph, opset_imports=[helper.make_opsetid("my.domain", 1)]
-    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
 
 
 @pytest.fixture
@@ -307,18 +293,19 @@ def test_variadic_identity(shared_lib, variadic_identity_model):
     np.testing.assert_equal(b, d)
 
 
-def test_fail_create_kernel(shared_lib):
+def test_fail_create_kernel_missing_attr(shared_lib):
     model = fallible_model(with_attr=False)
-    print(model)
+
+    with pytest.raises(onnxrt.capi.onnxruntime_pybind11_state.RuntimeException):
+        setup_session(shared_lib, model)
+
+
+def test_fail_compute(shared_lib):
+    model = fallible_model(with_attr=True)
     sess = setup_session(shared_lib, model)
-    sess.run(None, {"fail": np.array(True)})
 
+    with pytest.raises(onnxrt.capi.onnxruntime_pybind11_state.RuntimeException):
+        sess.run(None, {"fail": np.array(True)})
 
-def test_upstream_model():
-    import onnx
-    path = "/Users/c.bourjau/repos/onnxruntime/onnxruntime/test/testdata/custom_op_library/custom_op_test.onnx"
-
-    model = onnx.load_model(path)
-    shared_lib = Path("/Users/c.bourjau/repos/onnxruntime/build/Debug/libcustom_op_library.dylib")
-    setup_session(shared_lib, model)
-
+    # Don't fail depending on input
+    sess.run(None, {"fail": np.array(False)})

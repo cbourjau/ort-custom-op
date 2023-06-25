@@ -37,6 +37,7 @@ where
     T: CustomOp,
     <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
     <T as CustomOp>::KernelCreateError: std::fmt::Display,
+    <T as CustomOp>::ComputeError: std::fmt::Display,
 {
     extern "C" fn get_name<T: CustomOp>(_op: *const OrtCustomOp) -> *const c_char {
         CString::new(T::NAME).unwrap().into_raw()
@@ -102,6 +103,7 @@ where
     ) -> *mut OrtStatus
     where
         <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
+        <T as CustomOp>::ComputeError: std::fmt::Display,
     {
         let wrapped_kernel: &mut WrappedKernel<T> = &mut *(op_kernel as *mut _);
         let kernel = &wrapped_kernel.user_kernel;
@@ -121,10 +123,10 @@ where
                 outputs.write_to_ort(api, out_context);
                 return std::ptr::null_mut();
             }
-            Err(err) => dbg!(api.CreateStatus.unwrap()(
-                OrtErrorCode_ORT_RUNTIME_EXCEPTION,
-                CString::new("foobar baz!").unwrap().into_raw(),
-            )),
+            Err(err) => {
+                let msg = CString::new(format!("{}", err)).unwrap();
+                return api.CreateStatus.unwrap()(OrtErrorCode_ORT_RUNTIME_EXCEPTION, msg.as_ptr());
+            }
         }
     }
 
@@ -193,6 +195,7 @@ where
         T: CustomOp,
         <T as CustomOp>::OpOutputs: Outputs,
         <T as CustomOp>::KernelCreateError: std::fmt::Display,
+        <T as CustomOp>::ComputeError: std::fmt::Display,
     {
         <<T as CustomOp>::OpOutputs as Outputs>::VARIADIC_MIN_ARITY as _
     }

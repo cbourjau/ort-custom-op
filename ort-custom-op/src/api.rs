@@ -1,7 +1,7 @@
 use std::ffi::CString;
 
 use crate::bindings::*;
-use crate::error::{status_to_result, ErrorStatus};
+use crate::error::status_to_result;
 
 use anyhow::Result;
 use ndarray::{Array, ArrayD, ArrayView, ArrayViewD, ArrayViewMut, ArrayViewMutD};

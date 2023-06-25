@@ -1,4 +1,4 @@
-use anyhow::Error;
+use anyhow::{bail, Error};
 use ndarray::{ArrayD, ArrayViewD};
 
 use ort_custom_op::prelude::*;
@@ -16,8 +16,7 @@ impl CustomOp for FallibleOp {
     type OpOutputs = (ArrayD<bool>,);
 
     fn kernel_create(info: &KernelInfo) -> Result<Self, Self::KernelCreateError> {
-        dbg!("foo");
-        let _ = dbg!(info.get_attribute_i64("crash_if_1"))?;
+        let _ = dbg!(info.get_attribute_i64("required_attr"))?;
         Ok(FallibleOp)
     }
 
@@ -25,7 +24,9 @@ impl CustomOp for FallibleOp {
         &self,
         (do_fail,): Self::OpInputs<'_>,
     ) -> Result<Self::OpOutputs, Self::KernelCreateError> {
-        do_fail.into_shape(())?;
-        unimplemented!()
+        if (do_fail.mapv(|el| el as u8).sum() == 0) | do_fail.is_empty() {
+            return Ok((do_fail.to_owned(),));
+        }
+        bail!("Non-zero input found");
     }
 }
