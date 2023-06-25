@@ -30,11 +30,12 @@
               sha256 = "sha256-ub3Gk0Y20W+yfAqQxKNXMV4vMEgNug9ZgnAqcxrLI8A=";
               fetchSubmodules = true;
             };
+            # Speed up build by skipping upstream tests
             cmakeFlags = (
               prev.lib.lists.subtractLists
-                ["-DCMAKE_BUILD_TYPE=RELEASE" "-Donnxruntime_BUILD_UNIT_TESTS=ON"]
+                ["-Donnxruntime_BUILD_UNIT_TESTS=ON"]
                 prev.onnxruntime.cmakeFlags
-            ) ++ ["-DCMAKE_BUILD_TYPE=Debug" "-Donnxruntime_BUILD_UNIT_TESTS=OFF"];
+            ) ++ ["-Donnxruntime_BUILD_UNIT_TESTS=OFF"];
           });
         })
       ];
