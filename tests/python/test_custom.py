@@ -33,9 +33,7 @@ def custom_add_model():
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(
-        graph, opset_imports=[helper.make_opsetid("my.domain", 1)]
-    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
 
 
 @pytest.fixture
@@ -65,9 +63,7 @@ def parse_datetime_model():
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(
-        graph, opset_imports=[helper.make_opsetid("my.domain", 1)]
-    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
 
 
 @pytest.fixture
@@ -115,18 +111,14 @@ def attr_showcase_model():
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(
-        graph, opset_imports=[helper.make_opsetid("my.domain", 1)]
-    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
 
 
 @pytest.fixture
 def custom_sum_model():
     # Using custom operators with the DSL (i.e. `onnx.parse`) for
     # defining ONNX models seems to be unsupported...
-    node = helper.make_node(
-        "CustomSum", ["A", "B", "C"], ["D"], domain="my.domain"
-    )
+    node = helper.make_node("CustomSum", ["A", "B", "C"], ["D"], domain="my.domain")
     value_infos_input = [
         helper.make_value_info(
             "A", helper.make_tensor_type_proto(TensorProto.FLOAT, [None, None])
@@ -149,9 +141,7 @@ def custom_sum_model():
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(
-        graph, opset_imports=[helper.make_opsetid("my.domain", 1)]
-    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
 
 
 @pytest.fixture
@@ -183,9 +173,7 @@ def variadic_identity_model():
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(
-        graph, opset_imports=[helper.make_opsetid("my.domain", 1)]
-    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
 
 
 @pytest.fixture
@@ -204,6 +192,7 @@ def setup_session(shared_lib: Path, model) -> onnxrt.InferenceSession:
     onnxrt.set_default_logger_severity(3)
     so = onnxrt.SessionOptions()
     so.register_custom_ops_library(str(shared_lib))
+    so.log_severity_level = 0
 
     # Model loading successfully indicates that the custom op node
     # could be resolved successfully
