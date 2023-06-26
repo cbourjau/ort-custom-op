@@ -3,7 +3,7 @@
 
   # Flake inputs
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs"; # also valid: "nixpkgs"
+    nixpkgs.url = "github:cbourjau/nixpkgs/onnxruntime-macos"; # also valid: "nixpkgs"
     rust-overlay.url = "github:oxalica/rust-overlay"; # A helper for Rust + Nix
   };
 
@@ -36,29 +36,25 @@
     in
     {
       # Development environment output
-      devShells = forAllSystems ({ pkgs }: {
-        default = pkgs.mkShell {
-          # The Nix packages provided in the environment
-          packages = (with pkgs; [
-                python3
-                python310Packages.flake8
-                mypy
-                black
-                micromamba
-                # The package provided by our custom overlay. Includes cargo, Clippy, cargo-fmt,
-                # rustdoc, rustfmt, and other tools.
-                rustToolchain
-          ]) ++ pkgs.lib.optionals pkgs.stdenv.isDarwin (with pkgs; [ libiconv ]);
-          shellHook = ''
-            eval "$(micromamba shell hook --shell=posix)"
-
-            mkdir -p envs
-            if [ ! -d "envs/env" ]; then
-                micromamba create -p envs/env
-            fi
-            micromamba activate -p envs/env
-          '';
-        };
-      });
+      devShells = forAllSystems ({ pkgs }:
+        let
+        in
+        {
+          default = pkgs.mkShell {
+            # The Nix packages provided in the environment
+            packages = (with pkgs; [
+              python3
+              python310Packages.flake8
+              python310Packages.pytest
+              python310Packages.onnx
+              python310Packages.onnxruntime
+              mypy
+              black
+              # The package provided by our custom overlay. Includes cargo, Clippy, cargo-fmt,
+              # rustdoc, rustfmt, and other tools.
+              rustToolchain
+            ]) ++ pkgs.lib.optionals pkgs.stdenv.isDarwin (with pkgs; [ libiconv ]);
+          };
+        });
     };
 }
