@@ -1,4 +1,4 @@
-name: Rust
+name: Nix-based tests
 
 on: push
 
@@ -21,7 +21,7 @@ jobs:
         run: |
           nix develop --command \
           cargo test
-      - name: Build release
+      - name: Build
         run: |
           nix develop --command \
           cargo build --all
