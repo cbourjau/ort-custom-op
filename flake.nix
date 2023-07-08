@@ -31,11 +31,13 @@
               fetchSubmodules = true;
             };
             # Speed up build by skipping upstream tests
-            cmakeFlags = (
+            cmakeFlags = prev.lib.filter (x: !(prev.lib.strings.hasPrefix "-DFETCHCONTENT_SOURCE_DIR_EIGEN" x)) (
               prev.lib.lists.subtractLists
                 ["-Donnxruntime_BUILD_UNIT_TESTS=ON"]
                 prev.onnxruntime.cmakeFlags
             ) ++ ["-Donnxruntime_BUILD_UNIT_TESTS=OFF"];
+
+            buildInputs = prev.onnxruntime.buildInputs ++ [prev.pkgs.eigen];
           });
         })
       ];
@@ -66,7 +68,7 @@
               python310Packages.flake8
               python310Packages.pytest
               python310Packages.onnx
-              python310Packages.onnxruntime
+              # python310Packages.onnxruntime  # build error...
               mypy
               black
               # The package provided by our custom overlay. Includes cargo, Clippy, cargo-fmt,
