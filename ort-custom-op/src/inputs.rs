@@ -68,7 +68,7 @@ where
     const INPUT_TYPE: ElementType = T::INPUT_TYPE;
 
     fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext, first_idx: usize) -> Self {
-        let n_total = api.get_input_count(ctx).expect("Retrieve number of inputs");
+        let n_total = ctx.get_input_count(api).expect("Retrieve number of inputs");
         (first_idx..n_total)
             .map(|idx| T::from_ort(api, ctx, idx))
             .collect()
@@ -83,7 +83,7 @@ macro_rules! impl_input_non_string {
                 OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_REQUIRED;
 
             fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext, idx: usize) -> Self {
-                api.get_input_array::<$ty>(ctx, idx)
+                ctx.get_input_array::<$ty>(api, idx)
                     .expect("Loading input data of given type failed.")
             }
         }
@@ -106,7 +106,7 @@ impl<'s> Input<'s> for ArrayD<String> {
         OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_REQUIRED;
 
     fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext, idx: usize) -> Self {
-        api.get_input_array_string(ctx, idx)
+        ctx.get_input_array_string(api, idx)
             .expect("Loading input data of given type failed.")
     }
 }
