@@ -3,7 +3,7 @@
 
   # Flake inputs
   inputs = {
-    nixpkgs.url = "github:cbourjau/nixpkgs/onnxruntime-macos"; # also valid: "nixpkgs"
+    nixpkgs.url = "github:NixOS/nixpkgs"; # also valid: "nixpkgs"
     rust-overlay.url = "github:oxalica/rust-overlay"; # A helper for Rust + Nix
   };
 

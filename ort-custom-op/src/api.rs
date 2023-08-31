@@ -368,6 +368,26 @@ impl<'info> KernelInfo<'info> {
         };
         Ok(buf)
     }
+
+    pub fn get_attribute_tensor<'s, T>(&'s self, name: &str) -> Result<ArrayViewD<'s, T>> {
+        let get_alloc = self.api.GetAllocatorWithDefaultOptions.unwrap();
+        let mut alloc = std::ptr::null_mut();
+
+        unsafe { self.api.status_to_result(get_alloc(&mut alloc))? };
+
+        let name = CString::new(name)?;
+        let fun = self.api.KernelInfoGetAttribute_tensor.unwrap();
+        let value = {
+            let mut value = std::ptr::null_mut();
+            unsafe {
+                self.api
+                    .status_to_result(fun(self.info, name.as_ptr(), alloc, &mut value))?;
+                &mut *value
+            }
+        };
+
+        value.as_array(self.api)
+    }
 }
 
 impl<'s> TensorTypeAndShapeInfo<'s> {

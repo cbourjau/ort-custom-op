@@ -3,8 +3,9 @@ from platform import platform
 import pytest
 
 from onnx import helper, TensorProto
-import onnxruntime as onnxrt
+from onnx import numpy_helper
 import numpy as np
+import onnxruntime as onnxrt
 
 ROOT = Path(__file__).parent.parent.parent
 
@@ -68,8 +69,7 @@ def parse_datetime_model():
 
 @pytest.fixture
 def attr_showcase_model():
-    # Using custom operators with the DSL (i.e. `onnx.parse`) for
-    # defining ONNX models seems to be unsupported...
+    u8_tensor = numpy_helper.from_array(np.array([102, 111, 111], dtype=np.uint8))
     node = helper.make_node(
         "AttrShowcase",
         ["IN1", "IN2", "IN3"],
@@ -81,6 +81,7 @@ def attr_showcase_model():
             "string_attr": "bar",
             "floats_attr": [3.14, 3.14],
             "ints_attr": [42, 42],
+            "u8_tensor": u8_tensor
         },
     )
     value_infos_input = [
