@@ -33,9 +33,7 @@ where
         CString::new(T::NAME).unwrap().into_raw()
     }
 
-    extern "C" fn get_execution_provider_type<T: CustomOp>(
-        _op: *const OrtCustomOp,
-    ) -> *const c_char {
+    extern "C" fn get_execution_provider_type(_op: *const OrtCustomOp) -> *const c_char {
         b"CPUExecutionProvider\0".as_ptr() as *const _
     }
 
@@ -170,7 +168,7 @@ where
         version: API_VERSION,
         CreateKernel: Some(create_kernel::<T>),
         GetName: Some(get_name::<T>),
-        GetExecutionProviderType: Some(get_execution_provider_type::<T>),
+        GetExecutionProviderType: Some(get_execution_provider_type),
         GetInputType: Some(get_input_type::<T>),
         GetInputTypeCount: Some(get_input_type_count::<T>),
         GetOutputType: Some(get_output_type::<T>),

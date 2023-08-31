@@ -3,7 +3,7 @@ use std::ffi::CString;
 use crate::bindings::*;
 use crate::error::ErrorStatusPtr;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use ndarray::{Array, ArrayD, ArrayView, ArrayViewD, ArrayViewMut, ArrayViewMutD};
 
 pub const API_VERSION: u32 = 14;
@@ -43,11 +43,8 @@ pub fn create_custom_op_domain(
     let c_op_domain = CString::new(domain).unwrap().into_raw();
     let domain = unsafe {
         // According to docs: "Must be freed with OrtApi::ReleaseCustomOpDomain"
-        status_to_result(fun_ptr(c_op_domain, &mut domain_ptr), api)?;
-        status_to_result(
-            api.AddCustomOpDomain.unwrap()(session_options, domain_ptr),
-            api,
-        )?;
+        api.status_to_result(fun_ptr(c_op_domain, &mut domain_ptr))?;
+        api.status_to_result(api.AddCustomOpDomain.unwrap()(session_options, domain_ptr))?;
         domain_ptr.as_mut().unwrap()
     };
     for op in ops {
@@ -65,165 +62,95 @@ struct TensorTypeAndShapeInfo<'s> {
     info: &'s mut OrtTensorTypeAndShapeInfo,
 }
 
-/// Impls which simplify useful operation.
-impl OrtApi {
-    pub(crate) fn get_input_array<'s, T>(
-        &self,
-        context: &'s OrtKernelContext,
-        index: usize,
-    ) -> Result<ArrayViewD<'s, T>> {
-        let value = self.get_input(context, index)?;
+impl OrtValue {
+    fn shape(&self, api: &OrtApi) -> Result<Vec<usize>> {
         let shape: Vec<_> = self
-            .get_tensor_type_and_shape(value)?
+            .get_tensor_type_and_shape(api)?
             .get_dimensions()?
             .into_iter()
             .map(|v| v as usize)
             .collect();
-        let mut_tensor = self.get_tensor_data_mut::<T>(value, &shape)?;
-        let n_elems = mut_tensor.len();
-        let s = mut_tensor.into_slice().unwrap();
-        Ok(ArrayView::<'s, T, ndarray::Ix1>::from_shape((n_elems,), s)?
-            .into_dyn()
-            .into_shape(shape.as_slice())
-            .unwrap())
+        Ok(shape)
     }
 
-    pub(crate) fn get_input_array_string(
-        &self,
-        context: &OrtKernelContext,
-        index: usize,
-    ) -> Result<ArrayD<String>> {
-        let value = self.get_input(context, index)?;
-        self.get_string_tensor_data(value)
+    /// Get the ONNX type such as 'Tensor' or 'Map'.
+    fn onnx_type(&self, api: &OrtApi) -> Result<ONNXType> {
+        let fun = api.GetValueType.unwrap();
+        let mut num = 0;
+        let num = unsafe {
+            api.status_to_result(fun(self, &mut num))?;
+            num
+        };
+        Ok(num)
     }
 
-    pub(crate) fn fill_string_tensor(
-        &self,
-        context: &mut OrtKernelContext,
-        index: usize,
-        array: ArrayD<String>,
-    ) -> Result<()> {
-        let shape = array.shape();
-        let shape_i64: Vec<_> = shape.iter().map(|v| *v as i64).collect();
-
-        let cstrings = array.mapv(|s| CString::new(s).unwrap());
-        let pointers = cstrings.map(|s| s.as_ptr());
-
-        // Make sure that the vector is not dealocated before the ptr is used!
-        let vec_of_ptrs = pointers.into_raw_vec();
-        let ptr_of_ptrs = vec_of_ptrs.as_ptr();
-        let n_items = array.len();
-        let val = unsafe { self.get_output(context, index, &shape_i64) }?;
-
-        let fun = self.FillStringTensor.unwrap();
-        status_to_result(unsafe { fun(val, ptr_of_ptrs, n_items) }, self)?;
-        Ok(())
+    pub fn as_array<T>(&mut self, api: &OrtApi) -> Result<ArrayViewD<T>> {
+        let shape = self.shape(api)?;
+        let data = self.get_data_mut(api)?;
+        Ok(ArrayView::from(data as &_).into_shape(shape.as_slice())?)
     }
 
-    pub(crate) fn get_input_count(&self, context: &OrtKernelContext) -> Result<usize> {
-        let fun = self.KernelContext_GetInputCount.unwrap();
-        let mut out: usize = 0;
-        status_to_result(unsafe { fun(context, &mut out) }, self)?;
-        Ok(out)
-    }
-}
-
-impl OrtApi {
-    /// Get `OrtValue` for input with index `idx`.
-    fn get_input<'s>(&self, ctx: &'s OrtKernelContext, idx: usize) -> Result<&'s mut OrtValue> {
-        let fun = self.KernelContext_GetInput.unwrap();
-
-        let mut value: *const OrtValue = std::ptr::null();
-        status_to_result(unsafe { fun(ctx, idx, &mut (value)) }, self)?;
-
-        // Code crime!
-        let value = unsafe { &mut *(value as *mut OrtValue) };
-        Ok(value)
-        // match value.as_mut() {
-        //     None => anyhow::bail!("failed to get input"),
-        //     Some(r) => Ok(r),
-        // }
+    pub fn as_array_mut<T>(&mut self, api: &OrtApi) -> Result<ArrayViewMutD<T>> {
+        let shape = self.shape(api)?;
+        let data = self.get_data_mut(api)?;
+        Ok(ArrayViewMut::from(data).into_shape(shape.as_slice())?)
     }
 
-    /// Get `OrtValue` for output with index `idx`.
-    pub unsafe fn get_output<'s>(
-        &self,
-        ctx: &'s mut OrtKernelContext,
-        idx: usize,
-        shape: &[i64],
-    ) -> Result<&'s mut OrtValue> {
-        let fun = self.KernelContext_GetOutput.unwrap();
-
-        let mut value: *mut OrtValue = std::ptr::null_mut();
-        status_to_result(
-            unsafe { fun(ctx, idx, shape.as_ptr(), shape.len(), &mut value) },
-            self,
-        )?;
-        match unsafe { value.as_mut() } {
-            None => anyhow::bail!("failed to get input"),
-            Some(r) => Ok(r),
+    fn get_data_mut<'s, T>(&'s mut self, api: &OrtApi) -> Result<&'s mut [T]> {
+        if self.onnx_type(api)? != ONNXType_ONNX_TYPE_TENSOR {
+            bail!("OrtValue is not a tensor")
         }
-    }
-
-    pub fn get_tensor_data_mut<'s, T>(
-        &self,
-        value: &'s mut OrtValue,
-        shape: &[usize],
-    ) -> Result<ArrayViewMutD<'s, T>> {
-        // This needs a refactor! The shape should be passed here,
-        // rather than when creating the `Value`.
         let element_count = {
-            let info = self.get_tensor_type_and_shape(value)?;
+            let info = self.get_tensor_type_and_shape(api)?;
             info.get_tensor_shape_element_count()?
         };
 
-        let fun = self.GetTensorMutableData.unwrap();
+        let fun = api.GetTensorMutableData.unwrap();
         let mut ptr: *mut _ = std::ptr::null_mut();
         let data = unsafe {
-            fun(value, &mut ptr);
+            fun(self, &mut ptr);
             std::slice::from_raw_parts_mut(ptr as *mut T, element_count)
         };
-        let a = ArrayViewMut::from(data).into_shape(shape).unwrap();
-        Ok(a)
+        Ok(data)
     }
 
     fn get_tensor_type_and_shape<'s>(
         &'s self,
-        value: &'s OrtValue,
+        api: &'s OrtApi,
     ) -> Result<TensorTypeAndShapeInfo<'s>> {
-        let fun = self.GetTensorTypeAndShape.unwrap();
+        let fun = api.GetTensorTypeAndShape.unwrap();
 
         let mut info: *mut OrtTensorTypeAndShapeInfo = std::ptr::null_mut();
         let ort_info = unsafe {
-            status_to_result(fun(value, &mut info), self)?;
+            api.status_to_result(fun(self, &mut info))?;
             info.as_mut().unwrap()
         };
         Ok(TensorTypeAndShapeInfo {
-            api: self,
+            api,
             info: ort_info,
         })
     }
 
     /// Total number of bytes of all concatenated strings (no trailing nulls!)
-    fn get_string_tensor_data_length(&self, value: &OrtValue) -> Result<usize> {
+    fn get_string_tensor_data_length(&self, api: &OrtApi) -> Result<usize> {
         let mut non_null_bytes = 0;
-        let fun_ptr = self.GetStringTensorDataLength.unwrap();
-        status_to_result(unsafe { fun_ptr(value, &mut non_null_bytes) }, self)?;
+        let fun_ptr = api.GetStringTensorDataLength.unwrap();
+        api.status_to_result(unsafe { fun_ptr(self, &mut non_null_bytes) })?;
         Ok(non_null_bytes)
     }
 
-    fn get_string_tensor_data(&self, value: &OrtValue) -> Result<ArrayD<String>> {
-        let fun_ptr = self.GetStringTensorContent.unwrap();
+    fn get_string_tensor_data(&self, api: &OrtApi) -> Result<ArrayD<String>> {
+        let fun_ptr = api.GetStringTensorContent.unwrap();
 
-        let info = self.get_tensor_type_and_shape(value)?;
+        let info = self.get_tensor_type_and_shape(api)?;
         let item_count = info.get_tensor_shape_element_count()?;
-        let non_null_bytes = self.get_string_tensor_data_length(value)?;
+        let non_null_bytes = self.get_string_tensor_data_length(api)?;
 
         let mut buf = vec![0u8; non_null_bytes];
         let mut offsets = vec![0usize; item_count];
         unsafe {
             fun_ptr(
-                value,
+                self,
                 buf.as_mut_ptr() as *mut _,
                 non_null_bytes,
                 offsets.as_mut_ptr() as *mut _,
@@ -258,6 +185,85 @@ impl OrtApi {
     }
 }
 
+impl OrtKernelContext {
+    pub(crate) fn get_input_array<'s, T>(
+        &self,
+        api: &OrtApi,
+        index: usize,
+    ) -> Result<ArrayViewD<'s, T>> {
+        let value = self.get_input(api, index)?;
+        value.as_array(api)
+    }
+
+    pub(crate) fn get_input_array_string(
+        &self,
+        api: &OrtApi,
+        index: usize,
+    ) -> Result<ArrayD<String>> {
+        let value = self.get_input(api, index)?;
+        value.get_string_tensor_data(api)
+    }
+
+    pub(crate) fn fill_string_tensor(
+        &mut self,
+        api: &OrtApi,
+        index: usize,
+        array: ArrayD<String>,
+    ) -> Result<()> {
+        let shape = array.shape();
+        let shape_i64: Vec<_> = shape.iter().map(|v| *v as i64).collect();
+
+        let cstrings = array.mapv(|s| CString::new(s).unwrap());
+        let pointers = cstrings.map(|s| s.as_ptr());
+
+        // Make sure that the vector is not dealocated before the ptr is used!
+        let vec_of_ptrs = pointers.into_raw_vec();
+        let ptr_of_ptrs = vec_of_ptrs.as_ptr();
+        let n_items = array.len();
+        let val = unsafe { self.get_output(api, index, &shape_i64) }?;
+
+        let fun = api.FillStringTensor.unwrap();
+        api.status_to_result(unsafe { fun(val, ptr_of_ptrs, n_items) })?;
+        Ok(())
+    }
+
+    pub(crate) fn get_input_count(&self, api: &OrtApi) -> Result<usize> {
+        let fun = api.KernelContext_GetInputCount.unwrap();
+        let mut out: usize = 0;
+        api.status_to_result(unsafe { fun(self, &mut out) })?;
+        Ok(out)
+    }
+
+    /// Get `OrtValue` for output with index `idx`.
+    pub(crate) unsafe fn get_output<'s>(
+        &'s mut self,
+        api: &OrtApi,
+        idx: usize,
+        shape: &[i64],
+    ) -> Result<&'s mut OrtValue> {
+        let fun = api.KernelContext_GetOutput.unwrap();
+
+        let mut value: *mut OrtValue = std::ptr::null_mut();
+        api.status_to_result(unsafe { fun(self, idx, shape.as_ptr(), shape.len(), &mut value) })?;
+        match unsafe { value.as_mut() } {
+            None => anyhow::bail!("failed to get input"),
+            Some(r) => Ok(r),
+        }
+    }
+
+    /// Get `OrtValue` for input with index `idx`.
+    fn get_input<'s>(&self, api: &OrtApi, idx: usize) -> Result<&'s mut OrtValue> {
+        let fun = api.KernelContext_GetInput.unwrap();
+
+        let mut value: *const OrtValue = std::ptr::null();
+        api.status_to_result(unsafe { fun(self, idx, &mut (value)) })?;
+
+        // Code crime!
+        let value = unsafe { &mut *(value as *mut OrtValue) };
+        Ok(value)
+    }
+}
+
 impl<'info> KernelInfo<'info> {
     pub(crate) fn from_ort(api: &'static OrtApi, info: &'info OrtKernelInfo) -> Self {
         KernelInfo { api, info }
@@ -268,7 +274,8 @@ impl<'info> KernelInfo<'info> {
         let name = CString::new(name)?;
         let fun = self.api.KernelInfoGetAttribute_float.unwrap();
         let mut out = 0.0;
-        status_to_result(unsafe { fun(self.info, name.as_ptr(), &mut out) }, self.api)?;
+        self.api
+            .status_to_result(unsafe { fun(self.info, name.as_ptr(), &mut out) })?;
         Ok(out)
     }
 
@@ -277,7 +284,8 @@ impl<'info> KernelInfo<'info> {
         let name = CString::new(name)?;
         let fun = self.api.KernelInfoGetAttribute_int64.unwrap();
         let mut out = 0;
-        status_to_result(unsafe { fun(self.info, name.as_ptr(), &mut out) }, self.api)?;
+        self.api
+            .status_to_result(unsafe { fun(self.info, name.as_ptr(), &mut out) })?;
         Ok(out)
     }
 
@@ -289,25 +297,24 @@ impl<'info> KernelInfo<'info> {
         let mut size = {
             let mut size = 0;
             unsafe {
-                status_to_result(
-                    fun(self.info, name.as_ptr(), std::ptr::null_mut(), &mut size),
-                    self.api,
-                )?;
+                self.api.status_to_result(fun(
+                    self.info,
+                    name.as_ptr(),
+                    std::ptr::null_mut(),
+                    &mut size,
+                ))?;
                 size
             }
         };
 
         let mut buf = vec![0u8; size as _];
         unsafe {
-            status_to_result(
-                fun(
-                    self.info,
-                    name.as_ptr(),
-                    buf.as_mut_ptr() as *mut i8,
-                    &mut size,
-                ),
-                self.api,
-            )?
+            self.api.status_to_result(fun(
+                self.info,
+                name.as_ptr(),
+                buf.as_mut_ptr() as *mut i8,
+                &mut size,
+            ))?
         };
         Ok(CString::from_vec_with_nul(buf)?.into_string()?)
     }
@@ -319,20 +326,20 @@ impl<'info> KernelInfo<'info> {
         let mut size = {
             let mut size = 0;
             unsafe {
-                status_to_result(
-                    fun(self.info, name.as_ptr(), std::ptr::null_mut(), &mut size),
-                    self.api,
-                )?;
+                self.api.status_to_result(fun(
+                    self.info,
+                    name.as_ptr(),
+                    std::ptr::null_mut(),
+                    &mut size,
+                ))?;
                 size
             }
         };
 
         let mut buf = vec![0f32; size as _];
         unsafe {
-            status_to_result(
-                fun(self.info, name.as_ptr(), buf.as_mut_ptr(), &mut size),
-                self.api,
-            )?
+            self.api
+                .status_to_result(fun(self.info, name.as_ptr(), buf.as_mut_ptr(), &mut size))?
         };
         Ok(buf)
     }
@@ -344,28 +351,22 @@ impl<'info> KernelInfo<'info> {
         let mut size = {
             let mut size = 0;
             unsafe {
-                status_to_result(
-                    fun(self.info, name.as_ptr(), std::ptr::null_mut(), &mut size),
-                    self.api,
-                )?;
+                self.api.status_to_result(fun(
+                    self.info,
+                    name.as_ptr(),
+                    std::ptr::null_mut(),
+                    &mut size,
+                ))?;
                 size
             }
         };
 
         let mut buf = vec![0i64; size as _];
         unsafe {
-            status_to_result(
-                fun(self.info, name.as_ptr(), buf.as_mut_ptr(), &mut size),
-                self.api,
-            )?
+            self.api
+                .status_to_result(fun(self.info, name.as_ptr(), buf.as_mut_ptr(), &mut size))?
         };
         Ok(buf)
-    }
-
-    // Not implemented for string?
-    #[allow(unused)]
-    fn get_attribute_array<T>(&self, name: &str) -> Result<&[T]> {
-        unimplemented!()
     }
 }
 
@@ -383,10 +384,9 @@ impl<'s> TensorTypeAndShapeInfo<'s> {
 
     fn get_tensor_shape_element_count(&self) -> Result<usize> {
         let mut element_count = 0;
-        status_to_result(
-            unsafe { self.api.GetTensorShapeElementCount.unwrap()(self.info, &mut element_count) },
-            self.api,
-        )?;
+        self.api.status_to_result(unsafe {
+            self.api.GetTensorShapeElementCount.unwrap()(self.info, &mut element_count)
+        })?;
         Ok(element_count)
     }
 
@@ -421,6 +421,27 @@ impl ElementType {
             Self::String => ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_STRING,
         }
     }
+
+    pub fn try_from_ort_encoding(type_number: u32) -> Result<Self> {
+        #[allow(non_upper_case_globals)]
+        Ok(match type_number {
+            ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL => Self::Bool,
+
+            ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT => Self::F32,
+            ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_DOUBLE => Self::F64,
+
+            ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32 => Self::I32,
+            ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64 => Self::I64,
+
+            ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8 => Self::U8,
+            ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT16 => Self::U16,
+            ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT32 => Self::U32,
+            ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT64 => Self::U64,
+
+            ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_STRING => Self::String,
+            _ => bail!("Unsupported tensor element type: '{}'", type_number),
+        })
+    }
 }
 
 fn add_op_to_domain(
@@ -429,16 +450,18 @@ fn add_op_to_domain(
     op: &'static OrtCustomOp,
 ) -> Result<(), ErrorStatusPtr> {
     let fun_ptr = api.CustomOpDomain_Add.unwrap();
-    status_to_result(unsafe { fun_ptr(domain, op) }, api)
+    api.status_to_result(unsafe { fun_ptr(domain, op) })
 }
 
-/// Wraps a status pointer into a result.
-///
-///A null pointer is mapped to the `Ok(())`.
-fn status_to_result(ptr: OrtStatusPtr, api: &OrtApi) -> Result<(), ErrorStatusPtr> {
-    if ptr.is_null() {
-        Ok(())
-    } else {
-        Err(ErrorStatusPtr::new(ptr, api))
+impl OrtApi {
+    /// Wraps a status pointer into a result.
+    ///
+    ///A null pointer is mapped to the `Ok(())`.
+    fn status_to_result(&self, ptr: OrtStatusPtr) -> Result<(), ErrorStatusPtr> {
+        if ptr.is_null() {
+            Ok(())
+        } else {
+            Err(ErrorStatusPtr::new(ptr, self))
+        }
     }
 }
