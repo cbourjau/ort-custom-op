@@ -9,4 +9,7 @@ Changelog
 
 0.4.0 (2023-09-01)
 ------------------
+
+**New feature**
+
 - Add support for tensor attributes
