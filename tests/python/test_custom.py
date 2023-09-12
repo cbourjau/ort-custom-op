@@ -10,22 +10,27 @@ import onnxruntime as onnxrt
 ROOT = Path(__file__).parent.parent.parent
 
 
+@pytest.fixture(params=[TensorProto.FLOAT, TensorProto.DOUBLE])
+def onnx_tensor_type(request):
+    return request.param
+
+
 @pytest.fixture
-def custom_add_model():
+def custom_add_model(onnx_tensor_type):
     # Using custom operators with the DSL (i.e. `onnx.parse`) for
     # defining ONNX models seems to be unsupported...
     node = helper.make_node("CustomAdd", ["A", "B"], ["C"], domain="my.domain")
     value_infos_input = [
         helper.make_value_info(
-            "A", helper.make_tensor_type_proto(TensorProto.FLOAT, [None, None])
+            "A", helper.make_tensor_type_proto(onnx_tensor_type, [None, None])
         ),
         helper.make_value_info(
-            "B", helper.make_tensor_type_proto(TensorProto.FLOAT, [None, None])
+            "B", helper.make_tensor_type_proto(onnx_tensor_type, [None, None])
         ),
     ]
     value_infos_output = [
         helper.make_value_info(
-            "C", helper.make_tensor_type_proto(TensorProto.FLOAT, [None, None])
+            "C", helper.make_tensor_type_proto(onnx_tensor_type, [None, None])
         ),
     ]
     graph = helper.make_graph(
@@ -200,16 +205,17 @@ def setup_session(shared_lib: Path, model) -> onnxrt.InferenceSession:
     return onnxrt.InferenceSession(model.SerializeToString(), sess_options=so)
 
 
-def test_custom_add(shared_lib, custom_add_model):
+def test_custom_add(shared_lib, custom_add_model, onnx_tensor_type):
+    dtype = helper.tensor_dtype_to_np_dtype(onnx_tensor_type)
     sess = setup_session(shared_lib, custom_add_model)
     # Run with input data
     input_name_0 = sess.get_inputs()[0].name
     input_name_1 = sess.get_inputs()[1].name
     output_name = sess.get_outputs()[0].name
-    input_0 = np.ones((3, 5)).astype(np.float32)
-    input_1 = np.zeros((3, 5)).astype(np.float32)
+    input_0 = np.ones((3, 5)).astype(dtype)
+    input_1 = np.zeros((3, 5)).astype(dtype)
     res = sess.run([output_name], {input_name_0: input_0, input_name_1: input_1})
-    output_expected = np.ones((3, 5)).astype(np.float32)
+    output_expected = np.ones((3, 5)).astype(dtype)
     np.testing.assert_allclose(output_expected, res[0], rtol=1e-05, atol=1e-08)
 
 
