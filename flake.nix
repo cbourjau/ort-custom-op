@@ -3,7 +3,7 @@
 
   # Flake inputs
   inputs = {
-    nixpkgs.url = "github:cbourjau/nixpkgs/onnxruntime-macos"; # also valid: "nixpkgs"
+    nixpkgs.url = "nixpkgs";
     rust-overlay.url = "github:oxalica/rust-overlay"; # A helper for Rust + Nix
   };
 
@@ -24,10 +24,10 @@
         (final: prev: {
           onnxruntime = prev.onnxruntime.overrideAttrs (oldAttrs: {
             src = prev.fetchFromGitHub {
-              owner = "cbourjau";
+              owner = "microsoft";
               repo = "onnxruntime";
-              rev = "69102883724a844f476bc4ab60e0aba040d6f823";
-              sha256 = "sha256-xRvvkq9EQxj6zHjyOb20qS6Lf5ASHDK6zIXnBGmVR2s=";
+              rev = "rel-1.16.0";
+              sha256 = "";
               fetchSubmodules = true;
             };
             # Speed up build by skipping upstream tests
