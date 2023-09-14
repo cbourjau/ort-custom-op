@@ -1,4 +1,4 @@
-use std::ffi::CString;
+use std::ffi::CStr;
 use std::fmt;
 
 use crate::bindings::{OrtApi, OrtStatus, OrtStatusPtr};
@@ -12,9 +12,12 @@ pub struct ErrorStatusPtr {
 impl ErrorStatusPtr {
     pub fn new(ptr: OrtStatusPtr, api: &OrtApi) -> Self {
         let cstr_ptr = unsafe { api.GetErrorMessage.unwrap()(ptr) };
-        let msg = unsafe { CString::from_raw(cstr_ptr as *mut _) }
-            .into_string()
-            .unwrap();
+        // We must not deallocated the msg string (use CStr rather than CString).
+        let msg = unsafe { CStr::from_ptr(cstr_ptr as *mut _) }
+            .to_str()
+            .unwrap()
+            .to_string();
+
         Self {
             status: unsafe { ptr.as_mut().unwrap() },
             msg,
