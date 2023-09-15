@@ -45,8 +45,8 @@
             packages = (with pkgs; [
               python3
               python310Packages.flake8
-              python310Packages.pytest
-              python310Packages.onnx
+              # python310Packages.pytest
+              # python310Packages.onnx
               # python310Packages.onnxruntime  # build error...
               mypy
               black
