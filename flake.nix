@@ -19,27 +19,6 @@
         (self: super: {
           rustToolchain = super.rust-bin.stable.latest.default;
         })
-
-
-        (final: prev: {
-          onnxruntime = prev.onnxruntime.overrideAttrs (oldAttrs: {
-            src = prev.fetchFromGitHub {
-              owner = "microsoft";
-              repo = "onnxruntime";
-              rev = "rel-1.16.0";
-              sha256 = "";
-              fetchSubmodules = true;
-            };
-            # Speed up build by skipping upstream tests
-            cmakeFlags = prev.lib.filter (x: !(prev.lib.strings.hasPrefix "-DFETCHCONTENT_SOURCE_DIR_EIGEN" x)) (
-              prev.lib.lists.subtractLists
-                ["-Donnxruntime_BUILD_UNIT_TESTS=ON"]
-                prev.onnxruntime.cmakeFlags
-            ) ++ ["-Donnxruntime_BUILD_UNIT_TESTS=OFF"];
-
-            buildInputs = prev.onnxruntime.buildInputs ++ [prev.pkgs.eigen];
-          });
-        })
       ];
 
       # Systems supported

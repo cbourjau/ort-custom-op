@@ -28,4 +28,5 @@ jobs:
       - name: Run Python tests
         run: |
           nix develop --command \
+          pip install --user --index-url "https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/ORT-Nightly/pypi/simple/" ort-nightly==1.16.0.dev20230908001
           pytest tests/python
