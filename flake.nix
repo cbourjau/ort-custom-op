@@ -3,7 +3,7 @@
 
   # Flake inputs
   inputs = {
-    nixpkgs.url = "nixpkgs";
+    nixpkgs.url = "github:NixOS/nixpkgs"; # also valid: "nixpkgs"
     rust-overlay.url = "github:oxalica/rust-overlay"; # A helper for Rust + Nix
   };
 
@@ -48,6 +48,7 @@
               # python310Packages.pytest
               # python310Packages.onnx
               # python310Packages.onnxruntime  # build error...
+              python310Packages.black
               mypy
               black
               # The package provided by our custom overlay. Includes cargo, Clippy, cargo-fmt,

@@ -1,23 +1,12 @@
 use std::ffi::CStr;
 use std::fmt;
 
-use crate::bindings::{OrtApi, OrtStatus, OrtStatusPtr};
+use crate::bindings::{OrtApi, OrtStatus};
 
 #[derive(Debug)]
 pub struct ErrorStatus {
     msg: String,
     _code: u32,
-}
-
-/// Wraps a status pointer into a result.
-///
-///A null pointer is mapped to `Ok(())`.
-pub fn status_to_result(ptr: OrtStatusPtr, api: &OrtApi) -> Result<(), ErrorStatus> {
-    if ptr.is_null() {
-        Ok(())
-    } else {
-        Err(ErrorStatus::new(ptr, api))
-    }
 }
 
 impl ErrorStatus {

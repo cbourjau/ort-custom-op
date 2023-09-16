@@ -38,8 +38,8 @@ macro_rules! impl_output_non_string {
             fn write_to_ort(self, api: &OrtApi, ctx: &mut OrtKernelContext, idx: usize) {
                 let shape = self.shape();
                 let shape_i64: Vec<_> = shape.iter().map(|v| *v as i64).collect();
-                let val = unsafe { api.get_output(ctx, idx, &shape_i64) }.unwrap();
-                let mut arr = api.get_tensor_data_mut(val, &shape).unwrap();
+                let val = unsafe { ctx.get_output(api, idx, &shape_i64) }.unwrap();
+                let mut arr = val.as_array_mut(api).unwrap();
                 arr.assign(&self);
             }
         }
@@ -52,7 +52,7 @@ impl Output for ArrayD<String> {
         OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_REQUIRED;
 
     fn write_to_ort(self, api: &OrtApi, ctx: &mut OrtKernelContext, idx: usize) {
-        api.fill_string_tensor(ctx, idx, self).unwrap();
+        ctx.fill_string_tensor(api, idx, self).unwrap();
     }
 }
 
