@@ -50,17 +50,17 @@ pub fn create_custom_op_domain(
     // Copies and leaks!
     let c_op_domain = CString::new(domain).unwrap().into_raw();
     let domain = unsafe {
+        // Create domain
         // According to docs: "Must be freed with OrtApi::ReleaseCustomOpDomain"
         bail_non_null!(fun_ptr(c_op_domain, &mut domain_ptr));
-        bail_non_null!(api.AddCustomOpDomain.unwrap()(session_options, domain_ptr));
-        bail_non_null!(fun_ptr(c_op_domain, &mut domain_ptr));
-        bail_non_null!(api.AddCustomOpDomain.unwrap()(session_options, domain_ptr));
         domain_ptr.as_mut().unwrap()
     };
+    // Add ops to domain
     for op in ops {
         bail_non_null!(add_op_to_domain(api, domain, op));
     }
-    std::ptr::null_mut()
+    // Add domain to session options
+    unsafe { api.AddCustomOpDomain.unwrap()(session_options, domain_ptr) }
 }
 
 /// Explicit struct around OrtTypeAndShapeInfo pointer since we are
