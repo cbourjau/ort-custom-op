@@ -29,8 +29,6 @@ impl ErrorStatus {
 
 impl fmt::Display for ErrorStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // We must not deallocate the returned string, hence the cstr.
-
         write!(f, "{:?}", self.msg)
     }
 }
