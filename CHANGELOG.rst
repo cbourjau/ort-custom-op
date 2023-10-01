@@ -7,6 +7,14 @@
 Changelog
 =========
 
+0.5.0 (Unreleased)
+------------------
+
+** New feature **
+
+- Input and Output traits are now publicly accessible.
+
+
 0.4.1 (2023-09-14)
 ------------------
 

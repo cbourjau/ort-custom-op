@@ -237,7 +237,8 @@ def setup_session(shared_lib: Path, model) -> onnxrt.InferenceSession:
 
     # Model loading successfully indicates that the custom op node
     # could be resolved successfully
-    return onnxrt.InferenceSession(model.SerializeToString(), sess_options=so)
+    return onnxrt.InferenceSession(model.SerializeToString(), sess_options=so,
+                                   providers=["CPUExecutionProvider"])
 
 
 def test_custom_add(shared_lib, custom_add_model):
