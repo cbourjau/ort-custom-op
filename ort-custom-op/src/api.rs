@@ -1,12 +1,12 @@
 use std::ffi::CString;
 
-use crate::bindings::*;
-use crate::error::ErrorStatusPtr;
-
 use anyhow::{bail, Result};
 use ndarray::{Array, ArrayD, ArrayView, ArrayViewD, ArrayViewMut, ArrayViewMutD};
 
-pub const API_VERSION: u32 = 14;
+use crate::bindings::*;
+use crate::error::ErrorStatus;
+
+pub const API_VERSION: u32 = 16;
 
 #[derive(Debug)]
 pub struct KernelInfo<'s> {
@@ -27,13 +27,21 @@ pub enum ElementType {
     String,
 }
 
+macro_rules! bail_non_null {
+    ($ptr:expr) => {
+        if !$ptr.is_null() {
+            return $ptr;
+        }
+    };
+}
+
 /// Create a new custom domain with the operators `ops`.
 pub fn create_custom_op_domain(
     session_options: &mut OrtSessionOptions,
     api_base: &mut OrtApiBase,
     domain: &str,
     ops: &[&'static OrtCustomOp],
-) -> Result<(), ErrorStatusPtr> {
+) -> OrtStatusPtr {
     let api = unsafe { api_base.GetApi.unwrap()(API_VERSION).as_ref().unwrap() };
 
     let fun_ptr = api.CreateCustomOpDomain.unwrap();
@@ -42,15 +50,17 @@ pub fn create_custom_op_domain(
     // Copies and leaks!
     let c_op_domain = CString::new(domain).unwrap().into_raw();
     let domain = unsafe {
+        // Create domain
         // According to docs: "Must be freed with OrtApi::ReleaseCustomOpDomain"
-        api.status_to_result(fun_ptr(c_op_domain, &mut domain_ptr))?;
-        api.status_to_result(api.AddCustomOpDomain.unwrap()(session_options, domain_ptr))?;
+        bail_non_null!(fun_ptr(c_op_domain, &mut domain_ptr));
         domain_ptr.as_mut().unwrap()
     };
+    // Add ops to domain
     for op in ops {
-        add_op_to_domain(api, domain, op)?;
+        bail_non_null!(add_op_to_domain(api, domain, op));
     }
-    Ok(())
+    // Add domain to session options
+    unsafe { api.AddCustomOpDomain.unwrap()(session_options, domain_ptr) }
 }
 
 /// Explicit struct around OrtTypeAndShapeInfo pointer since we are
@@ -468,20 +478,20 @@ fn add_op_to_domain(
     api: &OrtApi,
     domain: &mut OrtCustomOpDomain,
     op: &'static OrtCustomOp,
-) -> Result<(), ErrorStatusPtr> {
+) -> OrtStatusPtr {
     let fun_ptr = api.CustomOpDomain_Add.unwrap();
-    api.status_to_result(unsafe { fun_ptr(domain, op) })
+    unsafe { fun_ptr(domain, op) }
 }
 
 impl OrtApi {
     /// Wraps a status pointer into a result.
     ///
     ///A null pointer is mapped to the `Ok(())`.
-    fn status_to_result(&self, ptr: OrtStatusPtr) -> Result<(), ErrorStatusPtr> {
+    fn status_to_result(&self, ptr: OrtStatusPtr) -> Result<(), ErrorStatus> {
         if ptr.is_null() {
             Ok(())
         } else {
-            Err(ErrorStatusPtr::new(ptr, self))
+            Err(ErrorStatus::new(ptr, self))
         }
     }
 }

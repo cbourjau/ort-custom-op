@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, ops::Add};
+use std::{convert::Infallible, marker::PhantomData, ops::Add};
 
 use ndarray::{ArrayD, ArrayViewD};
 
@@ -15,16 +15,22 @@ where
     for<'s> (ArrayViewD<'s, T>, ArrayViewD<'s, T>): Inputs<'s>,
     (ArrayD<T>,): Outputs,
 {
+    type KernelCreateError = Infallible;
+    type ComputeError = Infallible;
+
     const NAME: &'static str = "CustomAdd";
 
     type OpInputs<'s> = (ArrayViewD<'s, T>, ArrayViewD<'s, T>);
     type OpOutputs = (ArrayD<T>,);
 
-    fn kernel_create(_info: &KernelInfo) -> Self {
-        CustomAdd { ty: PhantomData }
+    fn kernel_create(_info: &KernelInfo) -> Result<Self, Self::KernelCreateError> {
+        Ok(CustomAdd { ty: PhantomData })
     }
 
-    fn kernel_compute(&self, (array_x, array_y): Self::OpInputs<'_>) -> Self::OpOutputs {
-        (&array_x + &array_y,)
+    fn kernel_compute(
+        &self,
+        (array_x, array_y): Self::OpInputs<'_>,
+    ) -> Result<Self::OpOutputs, Self::ComputeError> {
+        Ok((&array_x + &array_y,))
     }
 }

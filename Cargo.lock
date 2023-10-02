@@ -120,6 +120,7 @@ dependencies = [
 name = "example"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "chrono",
  "ndarray",
  "ort_custom_op",

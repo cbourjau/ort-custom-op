@@ -3,6 +3,7 @@ use ort_custom_op::prelude::*;
 mod add;
 mod attr_showcase;
 mod datetime;
+mod fallible_op;
 mod sum;
 mod variadic_identity;
 
@@ -13,6 +14,7 @@ const OP_CUSTOM_ADD_F64: OrtCustomOp = build::<add::CustomAdd<f64>>();
 const OP_CUSTOM_SUM: OrtCustomOp = build::<sum::CustomSum>();
 const OP_PARSE_DATETIME: OrtCustomOp = build::<datetime::ParseDateTime>();
 const OP_VARIADIC_IDENTITY: OrtCustomOp = build::<variadic_identity::VariadicIdentity>();
+const OP_FALLIBLE: OrtCustomOp = build::<fallible_op::FallibleOp>();
 
 /// Public function which onnxruntime expects to be in the shared library
 #[no_mangle]
@@ -20,7 +22,7 @@ pub extern "C" fn RegisterCustomOps(
     options: &mut OrtSessionOptions,
     api_base: &mut OrtApiBase,
 ) -> *mut OrtStatus {
-    let status = create_custom_op_domain(
+    create_custom_op_domain(
         options,
         api_base,
         "my.domain",
@@ -31,11 +33,7 @@ pub extern "C" fn RegisterCustomOps(
             &OP_CUSTOM_SUM,
             &OP_PARSE_DATETIME,
             &OP_VARIADIC_IDENTITY,
+            &OP_FALLIBLE,
         ],
-    );
-
-    match status {
-        Ok(_) => std::ptr::null_mut(),
-        Err(status) => status.into_pointer(),
-    }
+    )
 }

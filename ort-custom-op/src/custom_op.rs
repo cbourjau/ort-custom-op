@@ -4,20 +4,28 @@ use std::os::raw::{c_char, c_void};
 use crate::api::{KernelInfo, API_VERSION};
 use crate::bindings::{
     ONNXTensorElementDataType, OrtApi, OrtCustomOp, OrtCustomOpInputOutputCharacteristic,
-    OrtKernelContext, OrtKernelInfo, OrtMemType, OrtMemType_OrtMemTypeDefault,
+    OrtErrorCode_ORT_RUNTIME_EXCEPTION, OrtKernelContext, OrtKernelInfo, OrtMemType,
+    OrtMemType_OrtMemTypeDefault, OrtStatus,
 };
 pub use crate::inputs::Inputs;
 pub use crate::outputs::Outputs;
 
 /// Trait defining the behavior of a custom operator.
 pub trait CustomOp {
+    type KernelCreateError;
+    type ComputeError;
     const NAME: &'static str;
 
     type OpInputs<'s>: Inputs<'s>;
     type OpOutputs: Outputs;
 
-    fn kernel_create(info: &KernelInfo) -> Self;
-    fn kernel_compute(&self, inputs: Self::OpInputs<'_>) -> Self::OpOutputs;
+    fn kernel_create(info: &KernelInfo) -> Result<Self, Self::KernelCreateError>
+    where
+        Self: Sized;
+    fn kernel_compute(
+        &self,
+        inputs: Self::OpInputs<'_>,
+    ) -> Result<Self::OpOutputs, Self::ComputeError>;
 }
 
 /// Function to build static instances of `OrtCustomOp`.
@@ -28,6 +36,8 @@ pub const fn build<'s, T>() -> OrtCustomOp
 where
     T: CustomOp,
     <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
+    <T as CustomOp>::KernelCreateError: std::fmt::Display,
+    <T as CustomOp>::ComputeError: std::fmt::Display,
 {
     extern "C" fn get_name<T: CustomOp>(_op: *const OrtCustomOp) -> *const c_char {
         CString::new(T::NAME).unwrap().into_raw()
@@ -59,23 +69,39 @@ where
         <<T as CustomOp>::OpOutputs as Outputs>::OUTPUT_TYPES.len()
     }
 
-    unsafe extern "C" fn create_kernel<T: CustomOp>(
+    unsafe extern "C" fn create_kernel_fallible<T: CustomOp>(
         _ort_op: *const OrtCustomOp,
         ort_api: *const OrtApi,
         ort_info: *const OrtKernelInfo,
-    ) -> *mut c_void {
+        kernel: *mut *mut c_void,
+    ) -> *mut OrtStatus
+    where
+        <T as CustomOp>::KernelCreateError: std::fmt::Display,
+    {
         let api = &*ort_api;
         let info = KernelInfo::from_ort(api, &*ort_info);
-        let user_kernel = T::kernel_create(&info);
+        let user_kernel = match T::kernel_create(&info) {
+            Ok(kernel) => kernel,
+            Err(err) => {
+                *kernel = std::ptr::null_mut();
+                // msg is copied inside `CreateStatus`
+                let msg = CString::new(format!("{}", err)).unwrap();
+                return api.CreateStatus.unwrap()(OrtErrorCode_ORT_RUNTIME_EXCEPTION, msg.as_ptr());
+            }
+        };
         let wrapped_kernel = WrappedKernel { user_kernel, api };
-        Box::leak(Box::new(wrapped_kernel)) as *mut _ as *mut c_void
+
+        *kernel = Box::leak(Box::new(wrapped_kernel)) as *mut _ as *mut c_void;
+        std::ptr::null_mut()
     }
 
-    unsafe extern "C" fn kernel_compute<'s, T: CustomOp>(
+    unsafe extern "C" fn kernel_compute_fallible<'s, T: CustomOp>(
         op_kernel: *mut c_void,
         context_ptr: *mut OrtKernelContext,
-    ) where
+    ) -> *mut OrtStatus
+    where
         <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
+        <T as CustomOp>::ComputeError: std::fmt::Display,
     {
         let wrapped_kernel: &mut WrappedKernel<T> = &mut *(op_kernel as *mut _);
         let kernel = &wrapped_kernel.user_kernel;
@@ -87,10 +113,19 @@ where
             kernel.kernel_compute(inputs)
         };
 
-        // Bad hack to use a second context here! The first one is
-        // still borrowed immutably at this point :/
-        let out_context = context_ptr.as_mut::<'s>().unwrap();
-        outputs.write_to_ort(api, out_context);
+        match outputs {
+            Ok(outputs) => {
+                // Bad hack to use a second context here! The first one is
+                // still borrowed immutably at this point :/
+                let out_context = context_ptr.as_mut::<'s>().unwrap();
+                outputs.write_to_ort(api, out_context);
+                return std::ptr::null_mut();
+            }
+            Err(err) => {
+                let msg = CString::new(format!("{}", err)).unwrap();
+                return api.CreateStatus.unwrap()(OrtErrorCode_ORT_RUNTIME_EXCEPTION, msg.as_ptr());
+            }
+        }
     }
 
     unsafe extern "C" fn kernel_destroy<T: CustomOp>(op_kernel: *mut c_void) {
@@ -157,6 +192,8 @@ where
     where
         T: CustomOp,
         <T as CustomOp>::OpOutputs: Outputs,
+        <T as CustomOp>::KernelCreateError: std::fmt::Display,
+        <T as CustomOp>::ComputeError: std::fmt::Display,
     {
         <<T as CustomOp>::OpOutputs as Outputs>::VARIADIC_MIN_ARITY as _
     }
@@ -166,14 +203,14 @@ where
         // operator. It is currently not clear to me how one defines a
         // version for an operator.
         version: API_VERSION,
-        CreateKernel: Some(create_kernel::<T>),
+        CreateKernel: None, // Some(create_kernel::<T>),
         GetName: Some(get_name::<T>),
         GetExecutionProviderType: Some(get_execution_provider_type),
         GetInputType: Some(get_input_type::<T>),
         GetInputTypeCount: Some(get_input_type_count::<T>),
         GetOutputType: Some(get_output_type::<T>),
         GetOutputTypeCount: Some(get_output_type_count::<T>),
-        KernelCompute: Some(kernel_compute::<T>),
+        KernelCompute: None, // Some(kernel_compute::<T>),,
         KernelDestroy: Some(kernel_destroy::<T>),
         GetInputCharacteristic: Some(get_input_characteristic::<T>),
         GetOutputCharacteristic: Some(get_output_characteristic::<T>),
@@ -182,6 +219,8 @@ where
         GetVariadicInputHomogeneity: Some(get_variadic_input_homogeneity::<T>),
         GetVariadicOutputMinArity: Some(get_variadic_output_min_arity::<T>),
         GetVariadicOutputHomogeneity: Some(get_variadic_output_homogeneity::<T>),
+        CreateKernelV2: Some(create_kernel_fallible::<T>),
+        KernelComputeV2: Some(kernel_compute_fallible::<T>),
     }
 }
 

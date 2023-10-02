@@ -222,6 +222,35 @@ def variadic_identity_model():
     return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
 
 
+def fallible_model(with_attr: bool):
+    # Using custom operators with the DSL (i.e. `onnx.parse`) for
+    # defining ONNX models seems to be unsupported...
+    node = helper.make_node(
+        "FallibleOp",
+        ["fail"],
+        ["out"],
+        domain="my.domain",
+        **({"required_attr": 1} if with_attr else {}),  # type: ignore
+    )
+    value_infos_input = [
+        helper.make_value_info(
+            "fail", helper.make_tensor_type_proto(TensorProto.BOOL, [])
+        ),
+    ]
+    value_infos_output = [
+        helper.make_value_info(
+            "out", helper.make_tensor_type_proto(TensorProto.BOOL, [])
+        ),
+    ]
+    graph = helper.make_graph(
+        [node],
+        "graph",
+        value_infos_input,
+        value_infos_output,
+    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
+
+
 @pytest.fixture
 def shared_lib() -> Path:
     if "macOS" in platform():
@@ -242,7 +271,11 @@ def setup_session(shared_lib: Path, model) -> onnxrt.InferenceSession:
 
     # Model loading successfully indicates that the custom op node
     # could be resolved successfully
-    return onnxrt.InferenceSession(model.SerializeToString(), sess_options=so)
+    return onnxrt.InferenceSession(
+        model.SerializeToString(),
+        sess_options=so,
+        providers=['CPUExecutionProvider']
+    )
 
 
 def test_custom_add(shared_lib, custom_add_model, onnx_tensor_type):
@@ -319,3 +352,21 @@ def test_variadic_identity(shared_lib, variadic_identity_model):
     a, b = input_feed.values()
     np.testing.assert_equal(a, c)
     np.testing.assert_equal(b, d)
+
+
+def test_fail_create_kernel_missing_attr(shared_lib):
+    model = fallible_model(with_attr=False)
+
+    with pytest.raises(onnxrt.capi.onnxruntime_pybind11_state.RuntimeException):
+        setup_session(shared_lib, model)
+
+
+def test_fail_compute(shared_lib):
+    model = fallible_model(with_attr=True)
+    sess = setup_session(shared_lib, model)
+
+    with pytest.raises(onnxrt.capi.onnxruntime_pybind11_state.RuntimeException):
+        sess.run(None, {"fail": np.array(True)})
+
+    # Don't fail depending on input
+    sess.run(None, {"fail": np.array(False)})
