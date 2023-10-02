@@ -27,7 +27,7 @@ pub trait Inputs<'s> {
 
     fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext) -> Self;
 }
-pub trait Input<'s> {
+trait Input<'s> {
     const INPUT_TYPE: ElementType;
     const CHARACTERISTIC: OrtCustomOpInputOutputCharacteristic;
 

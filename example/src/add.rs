@@ -12,8 +12,8 @@ pub struct CustomAdd<T> {
 impl<'add, T> CustomOp for CustomAdd<T>
 where
     T: 'static + Add<T, Output = T> + Clone,
-    for<'s> ArrayViewD<'s, T>: Input<'s>,
-    for<'s> ArrayD<T>: Output,
+    for<'s> (ArrayViewD<'s, T>, ArrayViewD<'s, T>): Inputs<'s>,
+    (ArrayD<T>,): Outputs,
 {
     const NAME: &'static str = "CustomAdd";
 

@@ -21,7 +21,7 @@ pub trait Outputs {
     fn write_to_ort(self, api: &OrtApi, ctx: &mut OrtKernelContext);
 }
 
-pub trait Output {
+trait Output {
     const OUTPUT_TYPE: ElementType;
     const CHARACTERISTIC: OrtCustomOpInputOutputCharacteristic;
 
