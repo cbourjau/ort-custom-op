@@ -38,6 +38,11 @@
       # Development environment output
       devShells = forAllSystems ({ pkgs }:
         let
+          lib-path = with pkgs; lib.makeLibraryPath [
+            libffi
+            openssl
+            stdenv.cc.cc
+          ];
         in
         {
           default = pkgs.mkShell {
@@ -45,9 +50,9 @@
             packages = (with pkgs; [
               python3
               python310Packages.flake8
-              python310Packages.pytest
-              python310Packages.onnx
-              python310Packages.onnxruntime
+              # python310Packages.pytest
+              # python310Packages.onnx
+              # python310Packages.onnxruntime  # build error...
               python310Packages.black
               mypy
               black
@@ -55,6 +60,22 @@
               # rustdoc, rustfmt, and other tools.
               rustToolchain
             ]) ++ pkgs.lib.optionals pkgs.stdenv.isDarwin (with pkgs; [ libiconv ]);
+            # shellHook inspired by:
+            # https://gist.github.com/cdepillabout/f7dbe65b73e1b5e70b7baa473dafddb3
+            shellHook = ''
+# Set LD_LIBRARY_PATH (Linux) for libraries not vendored by pip
+export "LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${lib-path}"
+
+VENV=.venv
+if test ! -d $VENV; then
+    python -m venv $VENV
+    source ./$VENV/bin/activate
+    pip install onnx onnxruntime pytest
+else
+    source ./$VENV/bin/activate
+fi
+''
+            ;
           };
         });
     };

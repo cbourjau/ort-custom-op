@@ -1,0 +1,4 @@
+[submodule "ort-custom-op/onnxruntime"]
+	path = ort-custom-op/onnxruntime
+	url = https://github.com/microsoft/onnxruntime.git
+	shallow = true

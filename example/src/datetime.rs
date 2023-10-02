@@ -1,3 +1,6 @@
+use std::convert::Infallible;
+
+use anyhow::Error;
 use chrono::NaiveDateTime;
 use ndarray::ArrayD;
 
@@ -11,25 +14,27 @@ pub struct ParseDateTime {
 }
 
 impl CustomOp for ParseDateTime {
+    type KernelCreateError = Error;
+    type ComputeError = Infallible;
     const NAME: &'static str = "ParseDateTime";
 
     type OpInputs<'s> = (ArrayD<String>,);
     type OpOutputs = (ArrayD<f64>,);
 
-    fn kernel_create(info: &KernelInfo) -> Self {
-        // There is no error propagation across the c-api at this
-        // point. At least the kernel creation is happening at session
-        // creation time so we don't get a nasty surprise at runtime.
-        let fmt = info.get_attribute_string("fmt").expect("");
-        Self { fmt }
+    fn kernel_create(info: &KernelInfo) -> Result<Self, Self::KernelCreateError> {
+        let fmt = info.get_attribute_string("fmt")?;
+        Ok(Self { fmt })
     }
 
-    fn kernel_compute<'s>(&self, (array_in,): (ArrayD<String>,)) -> Self::OpOutputs {
+    fn kernel_compute<'s>(
+        &self,
+        (array_in,): (ArrayD<String>,),
+    ) -> Result<Self::OpOutputs, Self::ComputeError> {
         let out = array_in.mapv(|s| {
             NaiveDateTime::parse_from_str(s.as_str(), self.fmt.as_str())
                 .map(|dt| dt.timestamp() as f64)
                 .unwrap_or_else(|_| f64::NAN)
         });
-        (out,)
+        Ok((out,))
     }
 }
