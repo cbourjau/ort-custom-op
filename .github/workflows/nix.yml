@@ -27,6 +27,4 @@ jobs:
           cargo build --all
       - name: Run Python tests
         run: |
-          nix develop --command \
-          pip install onnx onnxruntime pytest
-          pytest tests/python
+          nix develop --command pytest tests/python
