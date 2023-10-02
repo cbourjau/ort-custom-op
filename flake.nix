@@ -38,6 +38,11 @@
       # Development environment output
       devShells = forAllSystems ({ pkgs }:
         let
+          lib-path = with pkgs; lib.makeLibraryPath [
+            libffi
+            openssl
+            stdenv.cc.cc
+          ];
         in
         {
           default = pkgs.mkShell {
@@ -55,7 +60,12 @@
               # rustdoc, rustfmt, and other tools.
               rustToolchain
             ]) ++ pkgs.lib.optionals pkgs.stdenv.isDarwin (with pkgs; [ libiconv ]);
+            # shellHook inspired by:
+            # https://gist.github.com/cdepillabout/f7dbe65b73e1b5e70b7baa473dafddb3
             shellHook = ''
+# Set LD_PATH for Linux CI
+export "LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${lib-path}"
+
 VENV=.venv
 if test ! -d $VENV; then
     python -m venv $VENV
