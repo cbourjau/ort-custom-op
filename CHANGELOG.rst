@@ -7,6 +7,13 @@
 Changelog
 =========
 
+0.4.1 (2023-09-14)
+------------------
+
+**Bug fix**
+
+- Fix double-free bug when attempting to access a non-existing attribute.
+
 0.4.0 (2023-09-01)
 ------------------
 

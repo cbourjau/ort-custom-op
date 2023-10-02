@@ -48,6 +48,7 @@
               python310Packages.pytest
               python310Packages.onnx
               python310Packages.onnxruntime
+              python310Packages.black
               mypy
               black
               # The package provided by our custom overlay. Includes cargo, Clippy, cargo-fmt,

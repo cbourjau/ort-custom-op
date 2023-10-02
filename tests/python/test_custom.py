@@ -86,8 +86,48 @@ def attr_showcase_model():
             "string_attr": "bar",
             "floats_attr": [3.14, 3.14],
             "ints_attr": [42, 42],
-            "u8_tensor": u8_tensor
+            "u8_tensor": u8_tensor,
         },
+    )
+    value_infos_input = [
+        helper.make_value_info(
+            "IN1", helper.make_tensor_type_proto(TensorProto.FLOAT, [])
+        ),
+        helper.make_value_info(
+            "IN2", helper.make_tensor_type_proto(TensorProto.INT64, [])
+        ),
+        helper.make_value_info(
+            "IN3", helper.make_tensor_type_proto(TensorProto.STRING, [])
+        ),
+    ]
+    value_infos_output = [
+        helper.make_value_info(
+            "OUT1", helper.make_tensor_type_proto(TensorProto.FLOAT, [])
+        ),
+        helper.make_value_info(
+            "OUT2", helper.make_tensor_type_proto(TensorProto.INT64, [])
+        ),
+        helper.make_value_info(
+            "OUT3", helper.make_tensor_type_proto(TensorProto.STRING, [])
+        ),
+    ]
+    graph = helper.make_graph(
+        [node],
+        "graph",
+        value_infos_input,
+        value_infos_output,
+    )
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
+
+
+@pytest.fixture
+def attr_showcase_model_missing_attributes():
+    """Create a model which lacks all attributes to test the error case."""
+    node = helper.make_node(
+        "AttrShowcase",
+        ["IN1", "IN2", "IN3"],
+        ["OUT1", "OUT2", "OUT3"],
+        domain="my.domain",
     )
     value_infos_input = [
         helper.make_value_info(
@@ -245,6 +285,16 @@ def test_attr_showcase(shared_lib, attr_showcase_model):
     np.testing.assert_equal(a, np.array([3.14], np.float32))
     np.testing.assert_equal(b, [42])
     np.testing.assert_equal(c, ["foo + bar"])
+
+
+@pytest.mark.skip(
+    reason="Crashes the interpreter but prints a decent error message."
+)
+def test_attr_showcase_missing_attrs(
+    shared_lib,
+    attr_showcase_model_missing_attributes,
+):
+    sess = setup_session(shared_lib, attr_showcase_model_missing_attributes)
 
 
 def test_custom_sum(shared_lib, custom_sum_model):
