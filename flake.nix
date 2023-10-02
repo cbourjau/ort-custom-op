@@ -55,6 +55,17 @@
               # rustdoc, rustfmt, and other tools.
               rustToolchain
             ]) ++ pkgs.lib.optionals pkgs.stdenv.isDarwin (with pkgs; [ libiconv ]);
+            shellHook = ''
+VENV=.venv
+if test ! -d $VENV; then
+    python -m venv $VENV
+    source ./$VENV/bin/activate
+    pip install onnx onnxruntime pytest
+else
+    source ./$VENV/bin/activate
+fi
+''
+            ;
           };
         });
     };

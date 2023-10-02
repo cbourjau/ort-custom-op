@@ -28,5 +28,4 @@ jobs:
       - name: Run Python tests
         run: |
           nix develop --command \
-          pip install --user onnx onnxruntime pytest
           pytest tests/python

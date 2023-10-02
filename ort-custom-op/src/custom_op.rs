@@ -219,8 +219,8 @@ where
         GetVariadicInputHomogeneity: Some(get_variadic_input_homogeneity::<T>),
         GetVariadicOutputMinArity: Some(get_variadic_output_min_arity::<T>),
         GetVariadicOutputHomogeneity: Some(get_variadic_output_homogeneity::<T>),
-        CreateKernelFallible: Some(create_kernel_fallible::<T>),
-        KernelComputeFallible: Some(kernel_compute_fallible::<T>),
+        CreateKernelV2: Some(create_kernel_fallible::<T>),
+        KernelComputeV2: Some(kernel_compute_fallible::<T>),
     }
 }
 
