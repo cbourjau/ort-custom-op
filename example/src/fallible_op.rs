@@ -3,7 +3,8 @@ use ndarray::{ArrayD, ArrayViewD};
 
 use ort_custom_op::prelude::*;
 
-/// A custom operator which adds its two inputs
+/// A custom operator that showcases error propagation from kernel creation and
+/// compute.
 pub struct FallibleOp;
 
 impl CustomOp for FallibleOp {

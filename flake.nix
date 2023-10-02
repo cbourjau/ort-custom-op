@@ -63,7 +63,7 @@
             # shellHook inspired by:
             # https://gist.github.com/cdepillabout/f7dbe65b73e1b5e70b7baa473dafddb3
             shellHook = ''
-# Set LD_PATH for Linux CI
+# Set LD_LIBRARY_PATH (Linux) for libraries not vendored by pip
 export "LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${lib-path}"
 
 VENV=.venv
