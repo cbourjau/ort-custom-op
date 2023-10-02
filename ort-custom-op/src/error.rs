@@ -6,7 +6,7 @@ use crate::bindings::{OrtApi, OrtStatus};
 #[derive(Debug)]
 pub struct ErrorStatus {
     msg: String,
-    _code: u32,
+    code: u32,
 }
 
 impl ErrorStatus {
@@ -19,17 +19,17 @@ impl ErrorStatus {
                 .unwrap()
                 .to_string()
         };
-        let _code = { unsafe { api.GetErrorCode.unwrap()(ptr) } };
+        let code = { unsafe { api.GetErrorCode.unwrap()(ptr) } };
 
         unsafe { api.ReleaseStatus.unwrap()(ptr) };
 
-        Self { msg, _code }
+        Self { msg, code }
     }
 }
 
 impl fmt::Display for ErrorStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.msg)
+        write!(f, "Error {}: {}", self.code, self.msg)
     }
 }
 
