@@ -7,13 +7,13 @@
 Changelog
 =========
 
-0.5.0 (2023-09-14)
+0.5.0 (2023-10-06)
 ------------------
 
-**Breaking change**
+**Breaking changes**
 
-- Enable error propagation from kernel creation and compute functions
-- Require ``onnxruntime > 1.16``
+- Enable error propagation from kernel creation and compute functions.
+- Require ``onnxruntime > 1.16``.
 
 
 0.4.1 (2023-09-14)
