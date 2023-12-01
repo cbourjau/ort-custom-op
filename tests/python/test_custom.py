@@ -352,7 +352,7 @@ def test_variadic_identity(shared_lib, variadic_identity_model):
 def test_fail_create_kernel_missing_attr(shared_lib):
     model = fallible_model(with_attr=False)
 
-    with pytest.raises(onnxrt.capi.onnxruntime_pybind11_state.RuntimeException, match=re.escape("FaillibleOp:")):
+    with pytest.raises(onnxrt.capi.onnxruntime_pybind11_state.RuntimeException, match=re.escape("FallibleOp:")):
         setup_session(shared_lib, model)
 
 
@@ -360,7 +360,7 @@ def test_fail_compute(shared_lib):
     model = fallible_model(with_attr=True)
     sess = setup_session(shared_lib, model)
 
-    with pytest.raises(onnxrt.capi.onnxruntime_pybind11_state.RuntimeException, match=re.escape("FaillibleOp:")):
+    with pytest.raises(onnxrt.capi.onnxruntime_pybind11_state.RuntimeException, match=re.escape("FallibleOp:")):
         sess.run(None, {"fail": np.array(True)})
 
     # Don't fail depending on input
