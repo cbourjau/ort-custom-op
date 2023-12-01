@@ -360,7 +360,7 @@ def test_fail_compute(shared_lib):
     model = fallible_model(with_attr=True)
     sess = setup_session(shared_lib, model)
 
-    with pytest.raises(onnxrt.capi.onnxruntime_pybind11_state.RuntimeException):
+    with pytest.raises(onnxrt.capi.onnxruntime_pybind11_state.RuntimeException, match=re.escape("FaillibleOp:")):
         sess.run(None, {"fail": np.array(True)})
 
     # Don't fail depending on input

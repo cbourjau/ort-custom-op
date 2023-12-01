@@ -122,7 +122,7 @@ where
                 return std::ptr::null_mut();
             }
             Err(err) => {
-                let msg = CString::new(format!("{}", err)).unwrap();
+                let msg = CString::new(format!("{}: {}", T::NAME, err)).unwrap();
                 return api.CreateStatus.unwrap()(OrtErrorCode_ORT_RUNTIME_EXCEPTION, msg.as_ptr());
             }
         }
