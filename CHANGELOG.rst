@@ -7,6 +7,14 @@
 Changelog
 =========
 
+0.5.1 (2023-11-04)
+------------------
+
+**New feature**
+
+- Error messages now include the name of the node that caused the error.
+
+
 0.5.0 (2023-10-06)
 ------------------
 
