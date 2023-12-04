@@ -9,7 +9,8 @@ mod variadic_identity;
 
 /// Static objects defining the custom operators
 const OP_ATTR_SHOWCASE: OrtCustomOp = build::<attr_showcase::AttrShowcase>();
-const OP_CUSTOM_ADD: OrtCustomOp = build::<add::CustomAdd>();
+const OP_CUSTOM_ADD_F32: OrtCustomOp = build::<add::CustomAdd<f32>>();
+const OP_CUSTOM_ADD_F64: OrtCustomOp = build::<add::CustomAdd<f64>>();
 const OP_CUSTOM_SUM: OrtCustomOp = build::<sum::CustomSum>();
 const OP_PARSE_DATETIME: OrtCustomOp = build::<datetime::ParseDateTime>();
 const OP_VARIADIC_IDENTITY: OrtCustomOp = build::<variadic_identity::VariadicIdentity>();
@@ -27,7 +28,8 @@ pub extern "C" fn RegisterCustomOps(
         "my.domain",
         &[
             &OP_ATTR_SHOWCASE,
-            &OP_CUSTOM_ADD,
+            &OP_CUSTOM_ADD_F32,
+            &OP_CUSTOM_ADD_F64,
             &OP_CUSTOM_SUM,
             &OP_PARSE_DATETIME,
             &OP_VARIADIC_IDENTITY,
