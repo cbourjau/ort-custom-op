@@ -1,5 +1,6 @@
 use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
+use std::unimplemented;
 
 use crate::api::{KernelInfo, API_VERSION};
 use crate::bindings::{
@@ -7,8 +8,8 @@ use crate::bindings::{
     OrtErrorCode_ORT_RUNTIME_EXCEPTION, OrtKernelContext, OrtKernelInfo, OrtMemType,
     OrtMemType_OrtMemTypeDefault, OrtStatus,
 };
-pub use crate::inputs::Inputs;
 pub use crate::outputs::Outputs;
+pub use crate::value::TryFromValues;
 use crate::value::{TryIntoInputTuple, Value};
 
 /// Trait defining the behavior of a custom operator.
@@ -17,16 +18,14 @@ pub trait CustomOp {
     type ComputeError;
     const NAME: &'static str;
 
-    type OpInputs<'s>: Inputs<'s>;
+    type OpInputs: TryFromValues;
     type OpOutputs: Outputs;
 
     fn kernel_create(info: &KernelInfo) -> Result<Self, Self::KernelCreateError>
     where
         Self: Sized;
-    fn kernel_compute(
-        &self,
-        inputs: Self::OpInputs<'_>,
-    ) -> Result<Self::OpOutputs, Self::ComputeError>;
+    fn kernel_compute(&self, inputs: Self::OpInputs)
+        -> Result<Self::OpOutputs, Self::ComputeError>;
 }
 
 /// Function to build static instances of `OrtCustomOp`.
@@ -40,7 +39,7 @@ where
     // <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
     <T as CustomOp>::KernelCreateError: std::fmt::Display,
     <T as CustomOp>::ComputeError: std::fmt::Display,
-    &'data [Value<'ctx>]: TryIntoInputTuple<<T as CustomOp>::OpInputs<'ctx>>,
+    &'data [Value<'ctx>]: TryIntoInputTuple<<T as CustomOp>::OpInputs>,
 {
     extern "C" fn get_name<T: CustomOp>(_op: *const OrtCustomOp) -> *const c_char {
         CString::new(T::NAME).unwrap().into_raw()
@@ -54,18 +53,21 @@ where
         _op: *const OrtCustomOp,
         index: usize,
     ) -> ONNXTensorElementDataType {
-        <<T as CustomOp>::OpInputs<'_> as Inputs>::INPUT_TYPES[index].to_ort_encoding()
+        // <<T as CustomOp>::OpInputs as Inputs>::INPUT_TYPES[index].to_ort_encoding()
+        unimplemented!()
     }
 
     extern "C" fn get_input_type_count<T: CustomOp>(_op: *const OrtCustomOp) -> usize {
-        <<T as CustomOp>::OpInputs<'_> as Inputs>::CHARACTERISTICS.len()
+        // <<T as CustomOp>::OpInputs as Inputs>::CHARACTERISTICS.len()
+        unimplemented!()
     }
 
     extern "C" fn get_output_type<T: CustomOp>(
         _op: *const OrtCustomOp,
         index: usize,
     ) -> ONNXTensorElementDataType {
-        <<T as CustomOp>::OpOutputs as Outputs>::OUTPUT_TYPES[index].to_ort_encoding()
+        // <<T as CustomOp>::OpOutputs as Outputs>::OUTPUT_TYPES[index].to_ort_encoding()
+        unimplemented!()
     }
 
     extern "C" fn get_output_type_count<T: CustomOp>(_op: *const OrtCustomOp) -> usize {
@@ -104,7 +106,7 @@ where
     ) -> *mut OrtStatus
     where
         'ctx: 'data,
-        &'data [Value<'ctx>]: TryIntoInputTuple<<T as CustomOp>::OpInputs<'foo>>,
+        &'data [Value<'ctx>]: TryIntoInputTuple<<T as CustomOp>::OpInputs>,
         <T as CustomOp>::ComputeError: std::fmt::Display,
     {
         let wrapped_kernel: &mut WrappedKernel<T> = &mut *(op_kernel as *mut _);
@@ -115,11 +117,12 @@ where
         let outputs = {
             let input_values = context.get_input_values(api).unwrap();
             let input_values = input_values.as_slice();
-            kernel.kernel_compute(input_values.try_into_tuple().unwrap())
+            let tuple = TryFromValues::try_from_values(input_values).unwrap();
+            kernel.kernel_compute(tuple)
         };
 
         // let outputs = {
-        //     let inputs = <T::OpInputs<'s> as Inputs>::from_ort(api, context);
+        //     let inputs = <T::OpInputs as Inputs>::from_ort(api, context);
         //     kernel.kernel_compute(inputs)
         // };
 
@@ -148,9 +151,10 @@ where
     ) -> OrtCustomOpInputOutputCharacteristic
     where
         T: CustomOp,
-        <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
+        // <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
     {
-        <<T as CustomOp>::OpInputs<'s> as Inputs>::CHARACTERISTICS[index]
+        // <<T as CustomOp>::OpInputs<'s> as Inputs>::CHARACTERISTICS[index]
+        unimplemented!()
     }
 
     extern "C" fn get_output_characteristic<T>(
@@ -173,9 +177,10 @@ where
     ) -> ::std::os::raw::c_int
     where
         T: CustomOp,
-        <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
+        // <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
     {
-        i32::from(<<T as CustomOp>::OpInputs<'s> as Inputs>::VARIADIC_IS_HOMOGENEOUS)
+        unimplemented!()
+        // i32::from(<<T as CustomOp>::OpInputs<'s> as Inputs>::VARIADIC_IS_HOMOGENEOUS)
     }
 
     extern "C" fn get_variadic_input_min_arity<'s, T>(
@@ -183,9 +188,10 @@ where
     ) -> ::std::os::raw::c_int
     where
         T: CustomOp,
-        <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
+        // <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
     {
-        <<T as CustomOp>::OpInputs<'s> as Inputs>::VARIADIC_MIN_ARITY as _
+        unimplemented!()
+        // <<T as CustomOp>::OpInputs<'s> as Inputs>::VARIADIC_MIN_ARITY as _
     }
 
     extern "C" fn get_variadic_output_homogeneity<T>(

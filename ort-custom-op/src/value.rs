@@ -1,6 +1,8 @@
 use anyhow::{bail, Result};
 use ndarray::{Array, ArrayD, ArrayViewD};
 
+use crate::prelude::CustomOp;
+
 #[derive(Debug)]
 pub enum Value<'a> {
     TensorBool(ArrayViewD<'a, bool>),
@@ -93,6 +95,12 @@ pub trait TryIntoInputTuple<TPL> {
     fn try_into_tuple(self) -> Result<TPL>;
 }
 
+pub trait TryFromValues {
+    fn try_from_values(values: &[Value]) -> Result<Self>
+    where
+        Self: Sized;
+}
+
 // This can be implemented using the macro, but would require adding exceptions for warnings
 impl<'a, 'b, A> TryIntoInputTuple<(Vec<A>,)> for &'b [Value<'a>]
 where
@@ -109,97 +117,132 @@ where
     }
 }
 
-macro_rules! impl_try_into_input_tuple {
-    ($n_min:literal, $is_variadic:literal, $($var_ty:ident)? | $($positional_ty:ident),*) => {
-        impl<'a, 'b, $($positional_ty,)* $($var_ty)*> TryIntoInputTuple<($($positional_ty,)* $(Vec<$var_ty>,)*)> for &'b[Value<'a>]
-        where
-            'a: 'b,
-            $($positional_ty: TryFrom<&'b Value<'a>, Error = anyhow::Error>,)*
-            $($var_ty: TryFrom<&'b Value<'a>, Error = anyhow::Error>,)*
-        {
-            fn try_into_tuple(self) -> Result<($($positional_ty,)* $(Vec<$var_ty>,)*)> {
-                if $is_variadic {
-                    if self.len() < $n_min {
-                        bail!("expected at least {} inputs; found {}", $n_min, self.len())
-                    }
-                } else if self.len() != $n_min {
-                    bail!("expected {} inputs; found {}", $n_min, self.len())
-                }
+impl<A> TryFromValues for (Vec<A>,)
+where
+    A: for<'a, 'b> TryFrom<&'b Value<'a>, Error = anyhow::Error>,
+{
+    fn try_from_values(values: &[Value]) -> Result<Self>
+    where
+        Self: Sized,
+    {
+        let rest = values
+            .iter()
+            .map(|el| el.try_into().map_err(|e| anyhow::anyhow!("{:?}", e)))
+            .collect::<Result<_, _>>()?;
 
-                let mut iter = self.iter();
-
-                Ok((
-                    $(TryInto::<$positional_ty>::try_into(iter.next().unwrap())?,)*
-                        $(iter.map(|el| el.try_into()).collect::<Result<Vec<$var_ty>, _>>()?,)*
-                ))
-            }
-        }
-    };
+        Ok((rest,))
+    }
 }
 
-// Positional-only implementations
-impl_try_into_input_tuple!(1, false, | A);
-impl_try_into_input_tuple!(2, false, | A, B);
-impl_try_into_input_tuple!(3, false, | A, B, C);
-impl_try_into_input_tuple!(4, false, | A, B, C, D);
-impl_try_into_input_tuple!(5, false, | A, B, C, D, E);
-impl_try_into_input_tuple!(6, false, | A, B, C, D, E, F);
-impl_try_into_input_tuple!(7, false, | A, B, C, D, E, F, G);
-impl_try_into_input_tuple!(8, false, | A, B, C, D, E, F, G, H);
-impl_try_into_input_tuple!(9, false, | A, B, C, D, E, F, G, H, I);
-impl_try_into_input_tuple!(10, false, | A, B, C, D, E, F, G, H, I, J);
+// macro_rules! impl_try_into_input_tuple {
+//     ($n_min:literal, $is_variadic:literal, $($var_ty:ident)? | $($positional_ty:ident),*) => {
+//         impl<'a, 'b, $($positional_ty,)* $($var_ty)*> TryIntoInputTuple<($($positional_ty,)* $(Vec<$var_ty>,)*)> for &'b[Value<'a>]
+//         where
+//             'a: 'b,
+//             $($positional_ty: TryFrom<&'b Value<'a>, Error = anyhow::Error>,)*
+//             $($var_ty: TryFrom<&'b Value<'a>, Error = anyhow::Error>,)*
+//         {
+//             fn try_into_tuple(self) -> Result<($($positional_ty,)* $(Vec<$var_ty>,)*)> {
+//                 if $is_variadic {
+//                     if self.len() < $n_min {
+//                         bail!("expected at least {} inputs; found {}", $n_min, self.len())
+//                     }
+//                 } else if self.len() != $n_min {
+//                     bail!("expected {} inputs; found {}", $n_min, self.len())
+//                 }
 
-// Variadic implementations; variadic input must be homogeneous, but may be empty
-impl_try_into_input_tuple!(1, true, Z | A);
-impl_try_into_input_tuple!(2, true, Z | A, B);
-impl_try_into_input_tuple!(3, true, Z | A, B, C);
-impl_try_into_input_tuple!(4, true, Z | A, B, C, D);
-impl_try_into_input_tuple!(5, true, Z | A, B, C, D, E);
-impl_try_into_input_tuple!(6, true, Z | A, B, C, D, E, F);
-impl_try_into_input_tuple!(7, true, Z | A, B, C, D, E, F, G);
-impl_try_into_input_tuple!(8, true, Z | A, B, C, D, E, F, G, H);
-impl_try_into_input_tuple!(9, true, Z | A, B, C, D, E, F, G, H, I);
-impl_try_into_input_tuple!(10, true, Z | A, B, C, D, E, F, G, H, I, J);
+//                 let mut iter = self.iter();
 
-// impl<'a, A> TryIntoInputTuple<(A,)> for Vec<Value<'a>>
-// where
-//     A: for<'b> TryFrom<&'b Value<'a>, Error = anyhow::Error>,
-// {
-//     fn try_into_tuple(&self) -> Result<(A,)> {
-//         let is_variadic = false;
-//         let n_min = 1;
-
-//         if is_variadic {
-//             if self.len() < n_min {
-//                 bail!("expected at least {} inputs; found {}", n_min, self.len())
+//                 Ok((
+//                     $(TryInto::<$positional_ty>::try_into(iter.next().unwrap())?,)*
+//                         $(iter.map(|el| el.try_into()).collect::<Result<Vec<$var_ty>, _>>()?,)*
+//                 ))
 //             }
-//         } else if self.len() != n_min {
-//             bail!("expected {} inputs; found {}", n_min, self.len())
 //         }
-
-//         let mut iter = self.iter();
-
-//         Ok((iter.next().unwrap().try_into()?,))
-//     }
+//     };
 // }
 
-// impl<'a, A, Z> TryIntoInputTuple<(A, Vec<Z>)> for Vec<Value<'a>>
-// where
-//     A: for<'b> TryFrom<&'b Value<'a>, Error = anyhow::Error>,
-//     Z: for<'b> TryFrom<&'b Value<'a>, Error = anyhow::Error>,
-// {
-//     fn try_into_tuple(&self) -> Result<(A, Vec<Z>)> {
-//         let n_min = 1;
+// // Positional-only implementations
+// impl_try_into_input_tuple!(1, false, | A);
+// impl_try_into_input_tuple!(2, false, | A, B);
+// impl_try_into_input_tuple!(3, false, | A, B, C);
+// impl_try_into_input_tuple!(4, false, | A, B, C, D);
+// impl_try_into_input_tuple!(5, false, | A, B, C, D, E);
+// impl_try_into_input_tuple!(6, false, | A, B, C, D, E, F);
+// impl_try_into_input_tuple!(7, false, | A, B, C, D, E, F, G);
+// impl_try_into_input_tuple!(8, false, | A, B, C, D, E, F, G, H);
+// impl_try_into_input_tuple!(9, false, | A, B, C, D, E, F, G, H, I);
+// impl_try_into_input_tuple!(10, false, | A, B, C, D, E, F, G, H, I, J);
 
-//         if self.len() < n_min {
-//             bail!("expected at least {} inputs; found {}", n_min, self.len())
-//         }
+// // Variadic implementations; variadic input must be homogeneous, but may be empty
+// impl_try_into_input_tuple!(1, true, Z | A);
+// impl_try_into_input_tuple!(2, true, Z | A, B);
+// impl_try_into_input_tuple!(3, true, Z | A, B, C);
+// impl_try_into_input_tuple!(4, true, Z | A, B, C, D);
+// impl_try_into_input_tuple!(5, true, Z | A, B, C, D, E);
+// impl_try_into_input_tuple!(6, true, Z | A, B, C, D, E, F);
+// impl_try_into_input_tuple!(7, true, Z | A, B, C, D, E, F, G);
+// impl_try_into_input_tuple!(8, true, Z | A, B, C, D, E, F, G, H);
+// impl_try_into_input_tuple!(9, true, Z | A, B, C, D, E, F, G, H, I);
+// impl_try_into_input_tuple!(10, true, Z | A, B, C, D, E, F, G, H, I, J);
 
-//         let mut iter = self.iter();
+// // impl<'a, A> TryIntoInputTuple<(A,)> for Vec<Value<'a>>
+// // where
+// //     A: for<'b> TryFrom<&'b Value<'a>, Error = anyhow::Error>,
+// // {
+// //     fn try_into_tuple(&self) -> Result<(A,)> {
+// //         let is_variadic = false;
+// //         let n_min = 1;
 
-//         Ok((
-//             iter.next().unwrap().try_into()?,
-//             iter.map(|el| el.try_into()).collect::<Result<_, _>>()?,
-//         ))
-//     }
-// }
+// //         if is_variadic {
+// //             if self.len() < n_min {
+// //                 bail!("expected at least {} inputs; found {}", n_min, self.len())
+// //             }
+// //         } else if self.len() != n_min {
+// //             bail!("expected {} inputs; found {}", n_min, self.len())
+// //         }
+
+// //         let mut iter = self.iter();
+
+// //         Ok((iter.next().unwrap().try_into()?,))
+// //     }
+// // }
+
+// // impl<'a, A, Z> TryIntoInputTuple<(A, Vec<Z>)> for Vec<Value<'a>>
+// // where
+// //     A: for<'b> TryFrom<&'b Value<'a>, Error = anyhow::Error>,
+// //     Z: for<'b> TryFrom<&'b Value<'a>, Error = anyhow::Error>,
+// // {
+// //     fn try_into_tuple(&self) -> Result<(A, Vec<Z>)> {
+// //         let n_min = 1;
+
+// //         if self.len() < n_min {
+// //             bail!("expected at least {} inputs; found {}", n_min, self.len())
+// //         }
+
+// //         let mut iter = self.iter();
+
+// //         Ok((
+// //             iter.next().unwrap().try_into()?,
+// //             iter.map(|el| el.try_into()).collect::<Result<_, _>>()?,
+// //         ))
+// //     }
+// // }
+
+fn kernel_compute_fallible<'ctx, 'data, 'foo, 's, T>() -> Result<()>
+where
+    'ctx: 'data,
+    T: CustomOp,
+    <T as CustomOp>::OpInputs: TryFromValues,
+    <T as CustomOp>::ComputeError: std::fmt::Display,
+{
+    let outputs: <T as CustomOp>::OpInputs = {
+        // let input_values = context.get_input_values(api).unwrap();
+        // let input_values = input_values.as_slice();
+        let input_values: Vec<Value> = vec![];
+        // let slice = input_values.as_slice();
+        TryFromValues::try_from_values(input_values.as_slice())?
+    };
+
+    Ok(())
+}
