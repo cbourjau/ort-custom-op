@@ -5,6 +5,7 @@ use ndarray::{Array, ArrayD, ArrayView, ArrayViewD, ArrayViewMut, ArrayViewMutD}
 
 use crate::bindings::*;
 use crate::error::ErrorStatus;
+use crate::value::{TensorString, Value};
 
 pub const API_VERSION: u32 = 16;
 
@@ -91,7 +92,32 @@ impl OrtValue {
             api.status_to_result(fun(self, &mut num))?;
             num
         };
+
         Ok(num)
+    }
+
+    pub fn load_value<'s>(&'s mut self, api: &OrtApi) -> Result<Value<'s>> {
+        Ok(match self.onnx_type(&api)? {
+            ONNXType_ONNX_TYPE_TENSOR => {
+                let (ty, shape) = {
+                    let info = self.get_tensor_type_and_shape(&api)?;
+                    (info.get_element_type()?, info.get_dimensions()?)
+                };
+                match ty {
+                    ElementType::I32 => Value::TensorI32(self.as_array(api)?),
+                    ElementType::String => {
+                        let (buf, offsets) = self.get_string_tensor_single_buf(api)?;
+                        Value::TensorString(TensorString {
+                            buf,
+                            shape: shape.into_iter().map(|n| n as usize).collect(),
+                            offsets,
+                        })
+                    }
+                    _ => panic!(),
+                }
+            }
+            _ => panic!(),
+        })
     }
 
     pub fn as_array<T>(&mut self, api: &OrtApi) -> Result<ArrayViewD<T>> {
@@ -149,6 +175,29 @@ impl OrtValue {
         Ok(non_null_bytes)
     }
 
+    /// Get string data as a single buffer along with the offsets to
+    /// the beginning of each element.
+    fn get_string_tensor_single_buf(&self, api: &OrtApi) -> Result<(Vec<u8>, Vec<usize>)> {
+        let fun_ptr = api.GetStringTensorContent.unwrap();
+
+        let info = self.get_tensor_type_and_shape(api)?;
+        let item_count = info.get_tensor_shape_element_count()?;
+        let non_null_bytes = self.get_string_tensor_data_length(api)?;
+
+        let mut buf = vec![0u8; non_null_bytes];
+        let mut offsets = vec![0usize; item_count];
+        api.status_to_result(unsafe {
+            fun_ptr(
+                self,
+                buf.as_mut_ptr() as *mut _,
+                non_null_bytes,
+                offsets.as_mut_ptr() as *mut _,
+                offsets.len(),
+            )
+        })?;
+        Ok((buf, offsets))
+    }
+
     fn get_string_tensor_data(&self, api: &OrtApi) -> Result<ArrayD<String>> {
         let fun_ptr = api.GetStringTensorContent.unwrap();
 
@@ -196,8 +245,18 @@ impl OrtValue {
 }
 
 impl OrtKernelContext {
+    pub(crate) fn get_input_values<'s>(&'s self, api: &OrtApi) -> Result<Vec<Value<'s>>> {
+        let n_inputs = self.get_input_count(api)?;
+        let mut inputs = Vec::with_capacity(n_inputs);
+        for idx in 0..n_inputs {
+            let value = self.get_input(api, idx)?;
+            inputs.push(value.load_value(api)?);
+        }
+        Ok(inputs)
+    }
+
     pub(crate) fn get_input_array<'s, T>(
-        &self,
+        &'s self,
         api: &OrtApi,
         index: usize,
     ) -> Result<ArrayViewD<'s, T>> {
@@ -262,7 +321,7 @@ impl OrtKernelContext {
     }
 
     /// Get `OrtValue` for input with index `idx`.
-    fn get_input<'s>(&self, api: &OrtApi, idx: usize) -> Result<&'s mut OrtValue> {
+    fn get_input<'s>(&'s self, api: &OrtApi, idx: usize) -> Result<&'s mut OrtValue> {
         let fun = api.KernelContext_GetInput.unwrap();
 
         let mut value: *const OrtValue = std::ptr::null();
@@ -421,7 +480,7 @@ impl<'s> TensorTypeAndShapeInfo<'s> {
     }
 
     #[allow(unused)]
-    fn get_tensor_element_type(&self) -> Result<ONNXTensorElementDataType> {
+    fn get_element_type(&self) -> Result<ElementType> {
         unimplemented!()
     }
 }

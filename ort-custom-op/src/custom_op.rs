@@ -9,6 +9,7 @@ use crate::bindings::{
 };
 pub use crate::inputs::Inputs;
 pub use crate::outputs::Outputs;
+use crate::value::{TryIntoInputTuple, Value};
 
 /// Trait defining the behavior of a custom operator.
 pub trait CustomOp {
@@ -32,12 +33,14 @@ pub trait CustomOp {
 ///
 /// These static objects are registered using the
 /// `create_custom_op_domain` function.
-pub const fn build<'s, T>() -> OrtCustomOp
+pub const fn build<'ctx, 'data, T>() -> OrtCustomOp
 where
+    'ctx: 'data,
     T: CustomOp,
-    <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
+    // <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
     <T as CustomOp>::KernelCreateError: std::fmt::Display,
     <T as CustomOp>::ComputeError: std::fmt::Display,
+    &'data [Value<'ctx>]: TryIntoInputTuple<<T as CustomOp>::OpInputs<'ctx>>,
 {
     extern "C" fn get_name<T: CustomOp>(_op: *const OrtCustomOp) -> *const c_char {
         CString::new(T::NAME).unwrap().into_raw()
@@ -95,23 +98,30 @@ where
         std::ptr::null_mut()
     }
 
-    unsafe extern "C" fn kernel_compute_fallible<'s, T: CustomOp>(
+    unsafe extern "C" fn kernel_compute_fallible<'ctx, 'data, 'foo, 's, T: CustomOp>(
         op_kernel: *mut c_void,
         context_ptr: *mut OrtKernelContext,
     ) -> *mut OrtStatus
     where
-        <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
+        'ctx: 'data,
+        &'data [Value<'ctx>]: TryIntoInputTuple<<T as CustomOp>::OpInputs<'foo>>,
         <T as CustomOp>::ComputeError: std::fmt::Display,
     {
         let wrapped_kernel: &mut WrappedKernel<T> = &mut *(op_kernel as *mut _);
         let kernel = &wrapped_kernel.user_kernel;
         let api = &wrapped_kernel.api;
-        let context = context_ptr.as_ref::<'s>().unwrap();
+        let context = context_ptr.as_ref::<'ctx>().unwrap();
 
         let outputs = {
-            let inputs = <T::OpInputs<'s> as Inputs>::from_ort(api, context);
-            kernel.kernel_compute(inputs)
+            let input_values = context.get_input_values(api).unwrap();
+            let input_values = input_values.as_slice();
+            kernel.kernel_compute(input_values.try_into_tuple().unwrap())
         };
+
+        // let outputs = {
+        //     let inputs = <T::OpInputs<'s> as Inputs>::from_ort(api, context);
+        //     kernel.kernel_compute(inputs)
+        // };
 
         match outputs {
             Ok(outputs) => {

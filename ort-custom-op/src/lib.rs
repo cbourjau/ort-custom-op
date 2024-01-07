@@ -4,6 +4,7 @@ mod custom_op;
 mod error;
 mod inputs;
 mod outputs;
+mod value;
 
 pub mod prelude {
     pub use crate::api::{create_custom_op_domain, KernelInfo};

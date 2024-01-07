@@ -22,7 +22,7 @@ impl CustomOp for AttrShowcase {
 
     const NAME: &'static str = "AttrShowcase";
 
-    type OpInputs<'s> = (ArrayViewD<'s, f32>, ArrayViewD<'s, i64>, ArrayD<String>);
+    type OpInputs<'s> = (ArrayViewD<'s, f32>, ArrayViewD<'s, i64>, ArrayD<&'s str>);
     type OpOutputs = (ArrayD<f32>, ArrayD<i64>, ArrayD<String>);
 
     fn kernel_create(info: &KernelInfo) -> Result<Self, Self::KernelCreateError> {
