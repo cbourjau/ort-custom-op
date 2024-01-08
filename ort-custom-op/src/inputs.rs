@@ -9,7 +9,7 @@ use ndarray::{ArrayD, ArrayViewD};
 
 /// Trait which qualifies types to be used as input to the
 /// `kernel_compute` function of the custom operator.
-pub trait Inputs<'s> {
+trait Inputs<'s> {
     const CHARACTERISTICS: &'static [OrtCustomOpInputOutputCharacteristic];
 
     // TODO: Make this configurable? Why does this even exists?!

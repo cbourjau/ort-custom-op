@@ -1,8 +1,6 @@
 use anyhow::{bail, Result};
 use ndarray::{Array, ArrayD, ArrayViewD};
 
-use crate::prelude::CustomOp;
-
 #[derive(Debug)]
 pub enum Value<'a> {
     TensorBool(ArrayViewD<'a, bool>),
@@ -27,6 +25,28 @@ pub struct TensorString {
     pub shape: Vec<usize>,
 }
 
+pub trait Inputs<'a>
+where
+    Self: 'a,
+{
+    fn try_from_values(values: &'a [Value]) -> Result<Self>
+    where
+        Self: Sized;
+}
+
+trait TryFromValue<'s>
+where
+    Self: 's,
+{
+    fn try_from_value(value: &'s Value) -> Result<Self>
+    where
+        Self: Sized;
+}
+
+/////////////////////
+// Implementations //
+/////////////////////
+
 impl TensorString {
     fn as_owned_array(&self) -> Result<ArrayD<&str>> {
         // Compute windows with the start and end of each
@@ -49,15 +69,6 @@ impl TensorString {
     }
 }
 
-trait TryFromValue<'s>
-where
-    Self: 's,
-{
-    fn try_from_value(value: &'s Value) -> Result<Self>
-    where
-        Self: Sized;
-}
-
 impl<'s> TryFromValue<'s> for ArrayD<&'s str> {
     fn try_from_value(value: &'s Value) -> Result<Self>
     where
@@ -71,37 +82,13 @@ impl<'s> TryFromValue<'s> for ArrayD<&'s str> {
     }
 }
 
-impl<'s> TryFromValue<'s> for ArrayViewD<'s, f32> {
-    fn try_from_value(value: &'s Value) -> Result<Self>
-    where
-        Self: Sized,
-    {
-        if let Value::TensorF32(arr) = value {
-            Ok(arr.view())
-        } else {
-            bail!("Expected 'F32' tensor, found {:?}", value)
-        }
-    }
-}
-
-impl<'a> TryFrom<&'a Value<'_>> for ArrayD<&'a str> {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &'a Value<'_>) -> std::result::Result<Self, Self::Error> {
-        if let Value::TensorString(tensor_string) = value {
-            Ok(tensor_string.as_owned_array()?)
-        } else {
-            bail!("Expected 'String' tensor, found {:?}", value)
-        }
-    }
-}
-
 macro_rules! impl_try_from {
     ($ty:ty, $variant:path) => {
-        impl<'a> TryFrom<&'a Value<'_>> for ArrayViewD<'a, $ty> {
-            type Error = anyhow::Error;
-
-            fn try_from(value: &'a Value<'_>) -> std::result::Result<Self, Self::Error> {
+        impl<'a> TryFromValue<'a> for ArrayViewD<'a, $ty>
+        where
+            Self: Sized,
+        {
+            fn try_from_value(value: &'a Value) -> Result<Self> {
                 if let $variant(arr) = value {
                     Ok(arr.view())
                 } else {
@@ -123,36 +110,9 @@ impl_try_from!(i16, Value::TensorI16);
 impl_try_from!(f64, Value::TensorF64);
 impl_try_from!(f32, Value::TensorF32);
 
-pub trait TryIntoInputTuple<TPL> {
-    fn try_into_tuple(self) -> Result<TPL>;
-}
-
-pub trait TryFromValues<'a>
-where
-    Self: 'a,
-{
-    fn try_from_values(values: &'a [Value]) -> Result<Self>
-    where
-        Self: Sized;
-}
-
-// This can be implemented using the macro, but would require adding exceptions for warnings
-impl<'a, 'b, A> TryIntoInputTuple<(Vec<A>,)> for &'b [Value<'a>]
-where
-    'a: 'b,
-    A: TryFrom<&'b Value<'a>, Error = anyhow::Error>,
-{
-    fn try_into_tuple(self) -> Result<(Vec<A>,)> {
-        let rest = self
-            .iter()
-            .map(|el| el.try_into().map_err(|e| anyhow::anyhow!("{:?}", e)))
-            .collect::<Result<_, _>>()?;
-
-        Ok((rest,))
-    }
-}
-
-impl<'s, A> TryFromValues<'s> for (Vec<A>,)
+// This could be implemented using the below macro, but then we would
+// have to disable some lints.
+impl<'s, A> Inputs<'s> for (Vec<A>,)
 where
     Self: 's,
     A: TryFromValue<'s>,
@@ -170,9 +130,9 @@ where
     }
 }
 
-macro_rules! impl_try_from_values {
+macro_rules! impl_inputs {
     ($n_min:literal, $is_variadic:literal, $($var_ty:ident)? | $($positional_ty:ident),*) => {
-        impl<'s, $($positional_ty,)* $($var_ty)*> TryFromValues<'s> for ($($positional_ty,)* $(Vec<$var_ty>,)*)
+        impl<'s, $($positional_ty,)* $($var_ty)*> Inputs<'s> for ($($positional_ty,)* $(Vec<$var_ty>,)*)
         where
             Self: 's,
             $($positional_ty: TryFromValue<'s>,)*
@@ -203,84 +163,25 @@ macro_rules! impl_try_from_values {
 }
 
 // // Positional-only implementations
-impl_try_from_values!(1, false, | A);
-impl_try_from_values!(2, false, | A, B);
-// impl_try_into_input_tuple!(3, false, | A, B, C);
-// impl_try_into_input_tuple!(4, false, | A, B, C, D);
-// impl_try_into_input_tuple!(5, false, | A, B, C, D, E);
-// impl_try_into_input_tuple!(6, false, | A, B, C, D, E, F);
-// impl_try_into_input_tuple!(7, false, | A, B, C, D, E, F, G);
-// impl_try_into_input_tuple!(8, false, | A, B, C, D, E, F, G, H);
-// impl_try_into_input_tuple!(9, false, | A, B, C, D, E, F, G, H, I);
-// impl_try_into_input_tuple!(10, false, | A, B, C, D, E, F, G, H, I, J);
+impl_inputs!(1, false, | A);
+impl_inputs!(2, false, | A, B);
+impl_inputs!(3, false, | A, B, C);
+impl_inputs!(4, false, | A, B, C, D);
+impl_inputs!(5, false, | A, B, C, D, E);
+impl_inputs!(6, false, | A, B, C, D, E, F);
+impl_inputs!(7, false, | A, B, C, D, E, F, G);
+impl_inputs!(8, false, | A, B, C, D, E, F, G, H);
+impl_inputs!(9, false, | A, B, C, D, E, F, G, H, I);
+impl_inputs!(10, false, | A, B, C, D, E, F, G, H, I, J);
 
 // // Variadic implementations; variadic input must be homogeneous, but may be empty
-// impl_try_into_input_tuple!(1, true, Z | A);
-// impl_try_into_input_tuple!(2, true, Z | A, B);
-// impl_try_into_input_tuple!(3, true, Z | A, B, C);
-// impl_try_into_input_tuple!(4, true, Z | A, B, C, D);
-// impl_try_into_input_tuple!(5, true, Z | A, B, C, D, E);
-// impl_try_into_input_tuple!(6, true, Z | A, B, C, D, E, F);
-// impl_try_into_input_tuple!(7, true, Z | A, B, C, D, E, F, G);
-// impl_try_into_input_tuple!(8, true, Z | A, B, C, D, E, F, G, H);
-// impl_try_into_input_tuple!(9, true, Z | A, B, C, D, E, F, G, H, I);
-// impl_try_into_input_tuple!(10, true, Z | A, B, C, D, E, F, G, H, I, J);
-
-// // impl<'a, A> TryIntoInputTuple<(A,)> for Vec<Value<'a>>
-// // where
-// //     A: for<'b> TryFrom<&'b Value<'a>, Error = anyhow::Error>,
-// // {
-// //     fn try_into_tuple(&self) -> Result<(A,)> {
-// //         let is_variadic = false;
-// //         let n_min = 1;
-
-// //         if is_variadic {
-// //             if self.len() < n_min {
-// //                 bail!("expected at least {} inputs; found {}", n_min, self.len())
-// //             }
-// //         } else if self.len() != n_min {
-// //             bail!("expected {} inputs; found {}", n_min, self.len())
-// //         }
-
-// //         let mut iter = self.iter();
-
-// //         Ok((iter.next().unwrap().try_into()?,))
-// //     }
-// // }
-
-// // impl<'a, A, Z> TryIntoInputTuple<(A, Vec<Z>)> for Vec<Value<'a>>
-// // where
-// //     A: for<'b> TryFrom<&'b Value<'a>, Error = anyhow::Error>,
-// //     Z: for<'b> TryFrom<&'b Value<'a>, Error = anyhow::Error>,
-// // {
-// //     fn try_into_tuple(&self) -> Result<(A, Vec<Z>)> {
-// //         let n_min = 1;
-
-// //         if self.len() < n_min {
-// //             bail!("expected at least {} inputs; found {}", n_min, self.len())
-// //         }
-
-// //         let mut iter = self.iter();
-
-// //         Ok((
-// //             iter.next().unwrap().try_into()?,
-// //             iter.map(|el| el.try_into()).collect::<Result<_, _>>()?,
-// //         ))
-// //     }
-// // }
-
-// fn kernel_compute_fallible<'s, T>() -> Result<()>
-// where
-//     T: CustomOp<'s>,
-//     <T as CustomOp<'s>>::ComputeError: std::fmt::Display,
-// {
-//     let outputs: <T as CustomOp>::OpInputs = {
-//         // let input_values = context.get_input_values(api).unwrap();
-//         // let input_values = input_values.as_slice();
-//         let input_values: Vec<Value> = vec![];
-//         let slice = input_values.as_slice();
-//         TryFromValues::try_from_values(slice)?
-//     };
-
-//     Ok(())
-// }
+impl_inputs!(1, true, Z | A);
+impl_inputs!(2, true, Z | A, B);
+impl_inputs!(3, true, Z | A, B, C);
+impl_inputs!(4, true, Z | A, B, C, D);
+impl_inputs!(5, true, Z | A, B, C, D, E);
+impl_inputs!(6, true, Z | A, B, C, D, E, F);
+impl_inputs!(7, true, Z | A, B, C, D, E, F, G);
+impl_inputs!(8, true, Z | A, B, C, D, E, F, G, H);
+impl_inputs!(9, true, Z | A, B, C, D, E, F, G, H, I);
+impl_inputs!(10, true, Z | A, B, C, D, E, F, G, H, I, J);
