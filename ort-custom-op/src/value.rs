@@ -25,22 +25,12 @@ pub struct TensorString {
     pub shape: Vec<usize>,
 }
 
-pub trait Inputs<'a>
-where
-    Self: 'a,
-{
-    fn try_from_values(values: &'a [Value]) -> Result<Self>
-    where
-        Self: Sized;
+pub trait Inputs<'a>: Sized {
+    fn try_from_values(values: &'a [Value]) -> Result<Self>;
 }
 
-trait TryFromValue<'s>
-where
-    Self: 's,
-{
-    fn try_from_value(value: &'s Value) -> Result<Self>
-    where
-        Self: Sized;
+trait TryFromValue<'s>: Sized {
+    fn try_from_value(value: &'s Value) -> Result<Self>;
 }
 
 /////////////////////
@@ -70,10 +60,7 @@ impl TensorString {
 }
 
 impl<'s> TryFromValue<'s> for ArrayD<&'s str> {
-    fn try_from_value(value: &'s Value) -> Result<Self>
-    where
-        Self: Sized,
-    {
+    fn try_from_value(value: &'s Value) -> Result<Self> {
         if let Value::TensorString(tensor_string) = value {
             Ok(tensor_string.as_owned_array()?)
         } else {
@@ -84,10 +71,7 @@ impl<'s> TryFromValue<'s> for ArrayD<&'s str> {
 
 macro_rules! impl_try_from {
     ($ty:ty, $variant:path) => {
-        impl<'a> TryFromValue<'a> for ArrayViewD<'a, $ty>
-        where
-            Self: Sized,
-        {
+        impl<'a> TryFromValue<'a> for ArrayViewD<'a, $ty> {
             fn try_from_value(value: &'a Value) -> Result<Self> {
                 if let $variant(arr) = value {
                     Ok(arr.view())
@@ -114,13 +98,9 @@ impl_try_from!(f32, Value::TensorF32);
 // have to disable some lints.
 impl<'s, A> Inputs<'s> for (Vec<A>,)
 where
-    Self: 's,
     A: TryFromValue<'s>,
 {
-    fn try_from_values(values: &'s [Value]) -> Result<Self>
-    where
-        Self: Sized,
-    {
+    fn try_from_values(values: &'s [Value]) -> Result<Self> {
         let rest = values
             .iter()
             .map(|el| TryFromValue::try_from_value(el))
@@ -134,13 +114,10 @@ macro_rules! impl_inputs {
     ($n_min:literal, $is_variadic:literal, $($var_ty:ident)? | $($positional_ty:ident),*) => {
         impl<'s, $($positional_ty,)* $($var_ty)*> Inputs<'s> for ($($positional_ty,)* $(Vec<$var_ty>,)*)
         where
-            Self: 's,
             $($positional_ty: TryFromValue<'s>,)*
             $($var_ty: TryFromValue<'s>,)*
         {
             fn try_from_values(values: &'s [Value]) -> Result<Self>
-            where
-                Self: Sized,
             {
                 if $is_variadic {
                     if values.len() < $n_min {
