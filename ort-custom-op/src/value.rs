@@ -49,6 +49,41 @@ impl TensorString {
     }
 }
 
+trait TryFromValue<'s>
+where
+    Self: 's,
+{
+    fn try_from_value(value: &'s Value) -> Result<Self>
+    where
+        Self: Sized;
+}
+
+impl<'s> TryFromValue<'s> for ArrayD<&'s str> {
+    fn try_from_value(value: &'s Value) -> Result<Self>
+    where
+        Self: Sized,
+    {
+        if let Value::TensorString(tensor_string) = value {
+            Ok(tensor_string.as_owned_array()?)
+        } else {
+            bail!("Expected 'String' tensor, found {:?}", value)
+        }
+    }
+}
+
+impl<'s> TryFromValue<'s> for ArrayViewD<'s, f32> {
+    fn try_from_value(value: &'s Value) -> Result<Self>
+    where
+        Self: Sized,
+    {
+        if let Value::TensorF32(arr) = value {
+            Ok(arr.view())
+        } else {
+            bail!("Expected 'F32' tensor, found {:?}", value)
+        }
+    }
+}
+
 impl<'a> TryFrom<&'a Value<'_>> for ArrayD<&'a str> {
     type Error = anyhow::Error;
 
@@ -63,10 +98,7 @@ impl<'a> TryFrom<&'a Value<'_>> for ArrayD<&'a str> {
 
 macro_rules! impl_try_from {
     ($ty:ty, $variant:path) => {
-        impl<'a, 'b> TryFrom<&'a Value<'_>> for ArrayViewD<'b, $ty>
-        where
-            'a: 'b,
-        {
+        impl<'a> TryFrom<&'a Value<'_>> for ArrayViewD<'a, $ty> {
             type Error = anyhow::Error;
 
             fn try_from(value: &'a Value<'_>) -> std::result::Result<Self, Self::Error> {
@@ -95,8 +127,11 @@ pub trait TryIntoInputTuple<TPL> {
     fn try_into_tuple(self) -> Result<TPL>;
 }
 
-pub trait TryFromValues {
-    fn try_from_values(values: &[Value]) -> Result<Self>
+pub trait TryFromValues<'a>
+where
+    Self: 'a,
+{
+    fn try_from_values(values: &'a [Value]) -> Result<Self>
     where
         Self: Sized;
 }
@@ -117,54 +152,59 @@ where
     }
 }
 
-impl<A> TryFromValues for (Vec<A>,)
+impl<'s, A> TryFromValues<'s> for (Vec<A>,)
 where
-    A: for<'a, 'b> TryFrom<&'b Value<'a>, Error = anyhow::Error>,
+    Self: 's,
+    A: TryFromValue<'s>,
 {
-    fn try_from_values(values: &[Value]) -> Result<Self>
+    fn try_from_values(values: &'s [Value]) -> Result<Self>
     where
         Self: Sized,
     {
         let rest = values
             .iter()
-            .map(|el| el.try_into().map_err(|e| anyhow::anyhow!("{:?}", e)))
+            .map(|el| TryFromValue::try_from_value(el))
             .collect::<Result<_, _>>()?;
 
         Ok((rest,))
     }
 }
 
-// macro_rules! impl_try_into_input_tuple {
-//     ($n_min:literal, $is_variadic:literal, $($var_ty:ident)? | $($positional_ty:ident),*) => {
-//         impl<'a, 'b, $($positional_ty,)* $($var_ty)*> TryIntoInputTuple<($($positional_ty,)* $(Vec<$var_ty>,)*)> for &'b[Value<'a>]
-//         where
-//             'a: 'b,
-//             $($positional_ty: TryFrom<&'b Value<'a>, Error = anyhow::Error>,)*
-//             $($var_ty: TryFrom<&'b Value<'a>, Error = anyhow::Error>,)*
-//         {
-//             fn try_into_tuple(self) -> Result<($($positional_ty,)* $(Vec<$var_ty>,)*)> {
-//                 if $is_variadic {
-//                     if self.len() < $n_min {
-//                         bail!("expected at least {} inputs; found {}", $n_min, self.len())
-//                     }
-//                 } else if self.len() != $n_min {
-//                     bail!("expected {} inputs; found {}", $n_min, self.len())
-//                 }
+macro_rules! impl_try_from_values {
+    ($n_min:literal, $is_variadic:literal, $($var_ty:ident)? | $($positional_ty:ident),*) => {
+        impl<'s, $($positional_ty,)* $($var_ty)*> TryFromValues<'s> for ($($positional_ty,)* $(Vec<$var_ty>,)*)
+        where
+            Self: 's,
+            $($positional_ty: TryFromValue<'s>,)*
+            $($var_ty: TryFromValue<'s>,)*
+        {
+            fn try_from_values(values: &'s [Value]) -> Result<Self>
+            where
+                Self: Sized,
+            {
+                if $is_variadic {
+                    if values.len() < $n_min {
+                        bail!("expected at least {} inputs; found {}", $n_min, values.len())
+                    }
+                } else if values.len() != $n_min {
+                    bail!("expected {} inputs; found {}", $n_min, values.len())
+                }
 
-//                 let mut iter = self.iter();
+                let mut iter = values.iter();
 
-//                 Ok((
-//                     $(TryInto::<$positional_ty>::try_into(iter.next().unwrap())?,)*
-//                         $(iter.map(|el| el.try_into()).collect::<Result<Vec<$var_ty>, _>>()?,)*
-//                 ))
-//             }
-//         }
-//     };
-// }
+                Ok((
+                    $(<$positional_ty as TryFromValue>::try_from_value(iter.next().unwrap())?,)*
+                        $(iter.map(|el| TryFromValue::try_from_value(el)).collect::<Result<Vec<$var_ty>, _>>()?,)*
+                ))
+            }
+
+        }
+    };
+}
 
 // // Positional-only implementations
-// impl_try_into_input_tuple!(1, false, | A);
-// impl_try_into_input_tuple!(2, false, | A, B);
+impl_try_from_values!(1, false, | A);
+impl_try_from_values!(2, false, | A, B);
 // impl_try_into_input_tuple!(3, false, | A, B, C);
 // impl_try_into_input_tuple!(4, false, | A, B, C, D);
 // impl_try_into_input_tuple!(5, false, | A, B, C, D, E);
@@ -229,20 +269,18 @@ where
 // //     }
 // // }
 
-fn kernel_compute_fallible<'ctx, 'data, 'foo, 's, T>() -> Result<()>
-where
-    'ctx: 'data,
-    T: CustomOp,
-    <T as CustomOp>::OpInputs: TryFromValues,
-    <T as CustomOp>::ComputeError: std::fmt::Display,
-{
-    let outputs: <T as CustomOp>::OpInputs = {
-        // let input_values = context.get_input_values(api).unwrap();
-        // let input_values = input_values.as_slice();
-        let input_values: Vec<Value> = vec![];
-        // let slice = input_values.as_slice();
-        TryFromValues::try_from_values(input_values.as_slice())?
-    };
+// fn kernel_compute_fallible<'s, T>() -> Result<()>
+// where
+//     T: CustomOp<'s>,
+//     <T as CustomOp<'s>>::ComputeError: std::fmt::Display,
+// {
+//     let outputs: <T as CustomOp>::OpInputs = {
+//         // let input_values = context.get_input_values(api).unwrap();
+//         // let input_values = input_values.as_slice();
+//         let input_values: Vec<Value> = vec![];
+//         let slice = input_values.as_slice();
+//         TryFromValues::try_from_values(slice)?
+//     };
 
-    Ok(())
-}
+//     Ok(())
+// }

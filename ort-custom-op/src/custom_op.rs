@@ -13,12 +13,12 @@ pub use crate::value::TryFromValues;
 use crate::value::{TryIntoInputTuple, Value};
 
 /// Trait defining the behavior of a custom operator.
-pub trait CustomOp {
+pub trait CustomOp<'s> {
     type KernelCreateError;
     type ComputeError;
     const NAME: &'static str;
 
-    type OpInputs: TryFromValues;
+    type OpInputs: TryFromValues<'s>;
     type OpOutputs: Outputs;
 
     fn kernel_create(info: &KernelInfo) -> Result<Self, Self::KernelCreateError>
@@ -35,13 +35,14 @@ pub trait CustomOp {
 pub const fn build<'ctx, 'data, T>() -> OrtCustomOp
 where
     'ctx: 'data,
-    T: CustomOp,
-    // <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
-    <T as CustomOp>::KernelCreateError: std::fmt::Display,
-    <T as CustomOp>::ComputeError: std::fmt::Display,
-    &'data [Value<'ctx>]: TryIntoInputTuple<<T as CustomOp>::OpInputs>,
+    T: for<'s> CustomOp<'s>,
+    <T as CustomOp<'data>>::KernelCreateError: std::fmt::Display,
+    <T as CustomOp<'data>>::ComputeError: std::fmt::Display,
 {
-    extern "C" fn get_name<T: CustomOp>(_op: *const OrtCustomOp) -> *const c_char {
+    extern "C" fn get_name<'s, T>(_op: *const OrtCustomOp) -> *const c_char
+    where
+        T: CustomOp<'s>,
+    {
         CString::new(T::NAME).unwrap().into_raw()
     }
 
@@ -49,39 +50,52 @@ where
         b"CPUExecutionProvider\0".as_ptr() as *const _
     }
 
-    extern "C" fn get_input_type<T: CustomOp>(
+    extern "C" fn get_input_type<'s, T>(
         _op: *const OrtCustomOp,
         index: usize,
-    ) -> ONNXTensorElementDataType {
+    ) -> ONNXTensorElementDataType
+    where
+        T: CustomOp<'s>,
+    {
         // <<T as CustomOp>::OpInputs as Inputs>::INPUT_TYPES[index].to_ort_encoding()
         unimplemented!()
     }
 
-    extern "C" fn get_input_type_count<T: CustomOp>(_op: *const OrtCustomOp) -> usize {
+    extern "C" fn get_input_type_count<'s, T>(_op: *const OrtCustomOp) -> usize
+    where
+        T: CustomOp<'s>,
+    {
         // <<T as CustomOp>::OpInputs as Inputs>::CHARACTERISTICS.len()
         unimplemented!()
     }
 
-    extern "C" fn get_output_type<T: CustomOp>(
+    extern "C" fn get_output_type<'s, T>(
         _op: *const OrtCustomOp,
         index: usize,
-    ) -> ONNXTensorElementDataType {
+    ) -> ONNXTensorElementDataType
+    where
+        T: CustomOp<'s>,
+    {
         // <<T as CustomOp>::OpOutputs as Outputs>::OUTPUT_TYPES[index].to_ort_encoding()
         unimplemented!()
     }
 
-    extern "C" fn get_output_type_count<T: CustomOp>(_op: *const OrtCustomOp) -> usize {
+    extern "C" fn get_output_type_count<'s, T>(_op: *const OrtCustomOp) -> usize
+    where
+        T: CustomOp<'s>,
+    {
         <<T as CustomOp>::OpOutputs as Outputs>::OUTPUT_TYPES.len()
     }
 
-    unsafe extern "C" fn create_kernel_fallible<T: CustomOp>(
+    unsafe extern "C" fn create_kernel_fallible<'s, T>(
         _ort_op: *const OrtCustomOp,
         ort_api: *const OrtApi,
         ort_info: *const OrtKernelInfo,
         kernel: *mut *mut c_void,
     ) -> *mut OrtStatus
     where
-        <T as CustomOp>::KernelCreateError: std::fmt::Display,
+        T: CustomOp<'s>,
+        <T as CustomOp<'s>>::KernelCreateError: std::fmt::Display,
     {
         let api = &*ort_api;
         let info = KernelInfo::from_ort(api, &*ort_info);
@@ -100,26 +114,24 @@ where
         std::ptr::null_mut()
     }
 
-    unsafe extern "C" fn kernel_compute_fallible<'ctx, 'data, 'foo, 's, T: CustomOp>(
+    unsafe extern "C" fn kernel_compute_fallible<'ctx, T>(
         op_kernel: *mut c_void,
         context_ptr: *mut OrtKernelContext,
     ) -> *mut OrtStatus
     where
-        'ctx: 'data,
-        &'data [Value<'ctx>]: TryIntoInputTuple<<T as CustomOp>::OpInputs>,
-        <T as CustomOp>::ComputeError: std::fmt::Display,
+        T: for<'s> CustomOp<'s>,
+        //for<'s> <T as CustomOp<'s>>::ComputeError: std::fmt::Display,
     {
         let wrapped_kernel: &mut WrappedKernel<T> = &mut *(op_kernel as *mut _);
         let kernel = &wrapped_kernel.user_kernel;
         let api = &wrapped_kernel.api;
         let context = context_ptr.as_ref::<'ctx>().unwrap();
 
-        let outputs = {
-            let input_values = context.get_input_values(api).unwrap();
-            let input_values = input_values.as_slice();
-            let tuple = TryFromValues::try_from_values(input_values).unwrap();
-            kernel.kernel_compute(tuple)
-        };
+        let input_values = vec![];
+        // context.get_input_values(api).unwrap();
+        let input_values = input_values.as_slice();
+        let tuple = TryFromValues::try_from_values(input_values).unwrap();
+        let outputs = kernel.kernel_compute(tuple);
 
         // let outputs = {
         //     let inputs = <T::OpInputs as Inputs>::from_ort(api, context);
@@ -130,18 +142,21 @@ where
             Ok(outputs) => {
                 // Bad hack to use a second context here! The first one is
                 // still borrowed immutably at this point :/
-                let out_context = context_ptr.as_mut::<'s>().unwrap();
+                let out_context = context_ptr.as_mut::<'ctx>().unwrap();
                 outputs.write_to_ort(api, out_context);
                 return std::ptr::null_mut();
             }
-            Err(err) => {
-                let msg = CString::new(format!("{}: {}", T::NAME, err)).unwrap();
+            Err(_err) => {
+                let msg = CString::new(format!("{}: print error", T::NAME)).unwrap();
                 return api.CreateStatus.unwrap()(OrtErrorCode_ORT_RUNTIME_EXCEPTION, msg.as_ptr());
             }
         }
     }
 
-    unsafe extern "C" fn kernel_destroy<T: CustomOp>(op_kernel: *mut c_void) {
+    unsafe extern "C" fn kernel_destroy<'s, T>(op_kernel: *mut c_void)
+    where
+        T: CustomOp<'s>,
+    {
         drop(Box::from_raw(op_kernel as *mut WrappedKernel<T>));
     }
 
@@ -150,20 +165,19 @@ where
         index: usize,
     ) -> OrtCustomOpInputOutputCharacteristic
     where
-        T: CustomOp,
+        T: CustomOp<'s>,
         // <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
     {
         // <<T as CustomOp>::OpInputs<'s> as Inputs>::CHARACTERISTICS[index]
         unimplemented!()
     }
 
-    extern "C" fn get_output_characteristic<T>(
+    extern "C" fn get_output_characteristic<'s, T>(
         _op: *const OrtCustomOp,
         index: usize,
     ) -> OrtCustomOpInputOutputCharacteristic
     where
-        T: CustomOp,
-        <T as CustomOp>::OpOutputs: Outputs,
+        T: CustomOp<'s>,
     {
         <<T as CustomOp>::OpOutputs as Outputs>::CHARACTERISTICS[index]
     }
@@ -176,8 +190,7 @@ where
         _op: *const OrtCustomOp,
     ) -> ::std::os::raw::c_int
     where
-        T: CustomOp,
-        // <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
+        T: CustomOp<'s>,
     {
         unimplemented!()
         // i32::from(<<T as CustomOp>::OpInputs<'s> as Inputs>::VARIADIC_IS_HOMOGENEOUS)
@@ -187,29 +200,29 @@ where
         _op: *const OrtCustomOp,
     ) -> ::std::os::raw::c_int
     where
-        T: CustomOp,
+        T: CustomOp<'s>,
         // <T as CustomOp>::OpInputs<'s>: Inputs<'s>,
     {
         unimplemented!()
         // <<T as CustomOp>::OpInputs<'s> as Inputs>::VARIADIC_MIN_ARITY as _
     }
 
-    extern "C" fn get_variadic_output_homogeneity<T>(
+    extern "C" fn get_variadic_output_homogeneity<'s, T>(
         _op: *const OrtCustomOp,
     ) -> ::std::os::raw::c_int
     where
-        T: CustomOp,
-        <T as CustomOp>::OpOutputs: Outputs,
+        T: CustomOp<'s>,
     {
         i32::from(<<T as CustomOp>::OpOutputs as Outputs>::VARIADIC_IS_HOMOGENEOUS)
     }
 
-    extern "C" fn get_variadic_output_min_arity<T>(_op: *const OrtCustomOp) -> ::std::os::raw::c_int
+    extern "C" fn get_variadic_output_min_arity<'s, T>(
+        _op: *const OrtCustomOp,
+    ) -> ::std::os::raw::c_int
     where
-        T: CustomOp,
-        <T as CustomOp>::OpOutputs: Outputs,
-        <T as CustomOp>::KernelCreateError: std::fmt::Display,
-        <T as CustomOp>::ComputeError: std::fmt::Display,
+        T: CustomOp<'s>,
+        <T as CustomOp<'s>>::KernelCreateError: std::fmt::Display,
+        <T as CustomOp<'s>>::ComputeError: std::fmt::Display,
     {
         <<T as CustomOp>::OpOutputs as Outputs>::VARIADIC_MIN_ARITY as _
     }

@@ -9,10 +9,10 @@ pub struct CustomAdd<T> {
     ty: PhantomData<T>,
 }
 
-impl<'add, T> CustomOp for CustomAdd<T>
+impl<'s, T> CustomOp<'s> for CustomAdd<T>
 where
     T: 'static + Add<T, Output = T> + Clone,
-    for<'s> (ArrayViewD<'s, T>, ArrayViewD<'s, T>): Inputs<'s>,
+    (ArrayViewD<'s, T>, ArrayViewD<'s, T>): TryFromValues<'s>,
     (ArrayD<T>,): Outputs,
 {
     type KernelCreateError = Infallible;
@@ -20,7 +20,7 @@ where
 
     const NAME: &'static str = "CustomAdd";
 
-    type OpInputs<'s> = (ArrayViewD<'s, T>, ArrayViewD<'s, T>);
+    type OpInputs = (ArrayViewD<'s, T>, ArrayViewD<'s, T>);
     type OpOutputs = (ArrayD<T>,);
 
     fn kernel_create(_info: &KernelInfo) -> Result<Self, Self::KernelCreateError> {
@@ -29,7 +29,7 @@ where
 
     fn kernel_compute(
         &self,
-        (array_x, array_y): Self::OpInputs<'_>,
+        (array_x, array_y): Self::OpInputs,
     ) -> Result<Self::OpOutputs, Self::ComputeError> {
         Ok((&array_x + &array_y,))
     }

@@ -12,4 +12,5 @@ pub mod prelude {
     pub use crate::custom_op::{build, CustomOp};
     pub use crate::inputs::Inputs;
     pub use crate::outputs::Outputs;
+    pub use crate::value::TryFromValues;
 }
