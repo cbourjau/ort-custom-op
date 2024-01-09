@@ -202,14 +202,15 @@ impl OrtKernelContext {
         let mut inputs = Vec::with_capacity(n_inputs);
         for idx in 0..n_inputs {
             let value = self.get_input(api, idx)?;
-            match value.onnx_type(api) {
-                _ => {
+            match value.onnx_type(api)? {
+                ONNXType_ONNX_TYPE_TENSOR => {
                     let (dtype, shape) = {
                         let info = value.get_tensor_type_and_shape(api)?;
                         (info.get_element_type()?, info.shape()?)
                     };
                     inputs.push(value.load_tensor_buffer(api, dtype, shape)?);
                 }
+                _ => bail!("Only tensor inputs are supported."),
             }
         }
         Ok(inputs)

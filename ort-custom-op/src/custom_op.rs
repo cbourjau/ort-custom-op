@@ -24,9 +24,9 @@ pub trait CustomOp {
     fn kernel_create(info: &KernelInfo) -> Result<Self, Self::KernelCreateError>
     where
         Self: Sized;
-    fn kernel_compute<'s>(
+    fn kernel_compute(
         &self,
-        inputs: Self::OpInputs<'s>,
+        inputs: Self::OpInputs<'_>,
     ) -> Result<Self::OpOutputs, Self::ComputeError>;
 }
 
@@ -117,7 +117,7 @@ extern "C" fn get_input_type<T>(_op: *const OrtCustomOp, index: usize) -> ONNXTe
 where
     T: CustomOp,
 {
-    <T::OpInputs<'_>>::tensor_data_type(index).expect(&format!("Input '{}' is not a tensor", index))
+    <T::OpInputs<'_>>::tensor_data_type(index).unwrap_or_else(|| panic!("Input '{}' is not a tensor", index))
 }
 
 extern "C" fn get_input_type_count<T>(_op: *const OrtCustomOp) -> usize

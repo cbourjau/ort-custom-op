@@ -27,9 +27,9 @@ where
         Ok(CustomAdd { ty: PhantomData })
     }
 
-    fn kernel_compute<'s>(
+    fn kernel_compute(
         &self,
-        (array_x, array_y): Self::OpInputs<'s>,
+        (array_x, array_y): Self::OpInputs<'_>,
     ) -> Result<Self::OpOutputs, Self::ComputeError> {
         Ok((&array_x + &array_y,))
     }
