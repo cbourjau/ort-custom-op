@@ -117,7 +117,8 @@ extern "C" fn get_input_type<T>(_op: *const OrtCustomOp, index: usize) -> ONNXTe
 where
     T: CustomOp,
 {
-    <T::OpInputs<'_>>::tensor_data_type(index).unwrap_or_else(|| panic!("Input '{}' is not a tensor", index))
+    <T::OpInputs<'_>>::tensor_data_type(index)
+        .unwrap_or_else(|| panic!("Input '{}' is not a tensor", index))
 }
 
 extern "C" fn get_input_type_count<T>(_op: *const OrtCustomOp) -> usize
@@ -164,7 +165,7 @@ where
     std::ptr::null_mut()
 }
 
-unsafe extern "C" fn kernel_compute_fallible<'ctx, T>(
+unsafe extern "C" fn kernel_compute_fallible<T>(
     op_kernel: *mut c_void,
     context_ptr: *mut OrtKernelContext,
 ) -> *mut OrtStatus
@@ -174,7 +175,7 @@ where
 {
     let WrappedKernel::<T> { user_kernel, api } = &mut *(op_kernel as *mut _);
 
-    let context = context_ptr.as_mut::<'ctx>().unwrap();
+    let context = context_ptr.as_mut::<'_>().unwrap();
     let outputs = {
         let bufs = bail_on_error!(api, context.get_input_values(api));
         let bufs: Vec<_> = bufs.iter().map(|el| el.normalize_buffers()).collect();

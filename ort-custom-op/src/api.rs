@@ -194,6 +194,7 @@ impl OrtValue {
 }
 
 impl OrtKernelContext {
+    #[allow(non_upper_case_globals)]
     pub(crate) fn get_input_values<'s>(
         &'s self,
         api: &OrtApi,
