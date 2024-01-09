@@ -15,6 +15,8 @@ pub trait CustomOp {
     type KernelCreateError;
     type ComputeError;
     const NAME: &'static str;
+    /// Minimum number of variadic inputs
+    const VARIADIC_MIN_ARITY: usize = 0;
 
     type OpInputs<'s>: Inputs<'s>;
     type OpOutputs: Outputs;
@@ -38,6 +40,13 @@ where
     T::KernelCreateError: std::fmt::Display,
     T::ComputeError: std::fmt::Display,
 {
+    // This `const` function is meant to be called at compile
+    // time. Therefore, the below panic is a compilation error from
+    // the user perspective.
+    if T::VARIADIC_MIN_ARITY > 0 && <T::OpInputs<'_>>::VARIADIC_IS_HOMOGENEOUS.is_none() {
+        panic!("Specified non-zero `MIN_VARIADIC_ARITY` but the operators inputs are not variadic.")
+    }
+
     OrtCustomOp {
         // This is the API version, not the version of the
         // operator. It is currently not clear to me how one defines a
@@ -108,24 +117,21 @@ extern "C" fn get_input_type<T>(_op: *const OrtCustomOp, index: usize) -> ONNXTe
 where
     T: CustomOp,
 {
-    // <T::OpInputs as Inputs>::INPUT_TYPES[index].to_ort_encoding()
-    unimplemented!()
+    <T::OpInputs<'_>>::tensor_data_type(index).expect(&format!("Input '{}' is not a tensor", index))
 }
 
 extern "C" fn get_input_type_count<T>(_op: *const OrtCustomOp) -> usize
 where
     T: CustomOp,
 {
-    // <T::OpInputs as Inputs>::CHARACTERISTICS.len()
-    unimplemented!()
+    <T::OpInputs<'_>>::NUM_POSITIONAL + T::VARIADIC_MIN_ARITY
 }
 
 extern "C" fn get_output_type<T>(_op: *const OrtCustomOp, index: usize) -> ONNXTensorElementDataType
 where
     T: CustomOp,
 {
-    // <T::OpOutputs as Outputs>::OUTPUT_TYPES[index].to_ort_encoding()
-    unimplemented!()
+    T::OpOutputs::OUTPUT_TYPES[index].to_ort_encoding()
 }
 
 extern "C" fn get_output_type_count<T>(_op: *const OrtCustomOp) -> usize
@@ -190,10 +196,8 @@ extern "C" fn get_input_characteristic<T>(
 ) -> OrtCustomOpInputOutputCharacteristic
 where
     T: CustomOp,
-    // T::OpInputs<'s>: Inputs<'s>,
 {
-    // <T::OpInputs<'s> as Inputs>::CHARACTERISTICS[index]
-    unimplemented!()
+    <T::OpInputs<'_>>::characteristic(index)
 }
 
 extern "C" fn get_output_characteristic<T>(
@@ -203,7 +207,7 @@ extern "C" fn get_output_characteristic<T>(
 where
     T: CustomOp,
 {
-    <T::OpOutputs as Outputs>::CHARACTERISTICS[index]
+    T::OpOutputs::CHARACTERISTICS[index]
 }
 
 extern "C" fn get_mem_type_default(_op: *const OrtCustomOp, _index: usize) -> OrtMemType {
@@ -214,17 +218,17 @@ extern "C" fn get_variadic_input_homogeneity<T>(_op: *const OrtCustomOp) -> ::st
 where
     T: CustomOp,
 {
-    unimplemented!()
-    // i32::from(<T::OpInputs<'s> as Inputs>::VARIADIC_IS_HOMOGENEOUS)
+    i32::from(
+        <T::OpInputs<'_>>::VARIADIC_IS_HOMOGENEOUS
+            .expect("'get_variadic_input_homogeneity' was for operator with fixed arity."),
+    )
 }
 
 extern "C" fn get_variadic_input_min_arity<T>(_op: *const OrtCustomOp) -> ::std::os::raw::c_int
 where
     T: CustomOp,
-    // T::OpInputs<'s>: Inputs<'s>,
 {
-    unimplemented!()
-    // <T::OpInputs<'s> as Inputs>::VARIADIC_MIN_ARITY as _
+    T::VARIADIC_MIN_ARITY as _
 }
 
 extern "C" fn get_variadic_output_homogeneity<T>(_op: *const OrtCustomOp) -> ::std::os::raw::c_int

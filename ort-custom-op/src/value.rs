@@ -1,3 +1,8 @@
+use crate::bindings::{
+    ONNXTensorElementDataType, OrtCustomOpInputOutputCharacteristic,
+    OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_REQUIRED,
+    OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_VARIADIC,
+};
 use anyhow::{bail, Result};
 use ndarray::{Array, ArrayD, ArrayViewD};
 
@@ -26,11 +31,38 @@ pub struct TensorString {
 }
 
 pub trait Inputs<'a>: Sized {
+    /// Is the variadic part of the inputs (if any) homogeneous?
+    const VARIADIC_IS_HOMOGENEOUS: Option<bool>;
+    /// Number of positional (i.e. non-variadic) inputs
+    const NUM_POSITIONAL: usize;
+
+    /// Create inputs from `Value` objects
     fn try_from_values(values: &'a [Value]) -> Result<Self>;
+
+    /// Tensor data type of this input, or `None` if it is not a Tensor
+    fn tensor_data_type(index: usize) -> Option<ONNXTensorElementDataType>;
+
+    /// Get the "characteristic" of an input (i.e. if it is
+    /// optional). Panics if `index` is out-of-range.
+    fn characteristic(index: usize) -> OrtCustomOpInputOutputCharacteristic {
+        // Everything is either required or variadic for now
+        if index < Self::NUM_POSITIONAL {
+            OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_REQUIRED
+        } else if index == Self::NUM_POSITIONAL && Self::VARIADIC_IS_HOMOGENEOUS.is_some() {
+            OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_VARIADIC
+        } else {
+            panic!("Provided index '{}' is out of range", index)
+        }
+    }
 }
 
 trait TryFromValue<'s>: Sized {
     fn try_from_value(value: &'s Value) -> Result<Self>;
+}
+
+/// Get ONNX tensor data type id if possible
+trait OnnxTensorDtype {
+    fn dtype_id() -> Option<ONNXTensorElementDataType>;
 }
 
 /////////////////////
@@ -98,8 +130,11 @@ impl_try_from!(f32, Value::TensorF32);
 // have to disable some lints.
 impl<'s, A> Inputs<'s> for (Vec<A>,)
 where
-    A: TryFromValue<'s>,
+    A: TryFromValue<'s> + OnnxTensorDtype,
 {
+    const VARIADIC_IS_HOMOGENEOUS: Option<bool> = Some(true);
+    const NUM_POSITIONAL: usize = 0;
+
     fn try_from_values(values: &'s [Value]) -> Result<Self> {
         let rest = values
             .iter()
@@ -108,15 +143,22 @@ where
 
         Ok((rest,))
     }
+
+    fn tensor_data_type(idx: usize) -> Option<ONNXTensorElementDataType> {
+        [A::dtype_id()][idx]
+    }
 }
 
 macro_rules! impl_inputs {
     ($n_min:literal, $is_variadic:literal, $($var_ty:ident)? | $($positional_ty:ident),*) => {
         impl<'s, $($positional_ty,)* $($var_ty)*> Inputs<'s> for ($($positional_ty,)* $(Vec<$var_ty>,)*)
         where
-            $($positional_ty: TryFromValue<'s>,)*
-            $($var_ty: TryFromValue<'s>,)*
+            $($positional_ty: TryFromValue<'s> + OnnxTensorDtype,)*
+            $($var_ty: TryFromValue<'s> + OnnxTensorDtype,)*
         {
+            const VARIADIC_IS_HOMOGENEOUS: Option<bool> = if $is_variadic {Some(true)} else { None };
+            const NUM_POSITIONAL: usize = $n_min;
+
             fn try_from_values(values: &'s [Value]) -> Result<Self>
             {
                 if $is_variadic {
@@ -134,7 +176,12 @@ macro_rules! impl_inputs {
                         $(iter.map(|el| TryFromValue::try_from_value(el)).collect::<Result<Vec<$var_ty>, _>>()?,)*
                 ))
             }
-
+            fn tensor_data_type(idx: usize) -> Option<ONNXTensorElementDataType> {
+                [
+                    $($positional_ty::dtype_id(),)*
+                        $($var_ty::dtype_id())*
+                ][idx]
+            }
         }
     };
 }
@@ -162,3 +209,31 @@ impl_inputs!(7, true, Z | A, B, C, D, E, F, G);
 impl_inputs!(8, true, Z | A, B, C, D, E, F, G, H);
 impl_inputs!(9, true, Z | A, B, C, D, E, F, G, H, I);
 impl_inputs!(10, true, Z | A, B, C, D, E, F, G, H, I, J);
+
+impl<'s> OnnxTensorDtype for ArrayD<&'s str> {
+    fn dtype_id() -> Option<ONNXTensorElementDataType> {
+        Some(crate::bindings::ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_STRING)
+    }
+}
+
+macro_rules! impl_onnx_tensor_dtype {
+    ($ty:ty, $ident:ident) => {
+        impl<'s> OnnxTensorDtype for ArrayViewD<'s, $ty> {
+            fn dtype_id() -> Option<ONNXTensorElementDataType> {
+                Some(crate::bindings::$ident)
+            }
+        }
+    };
+}
+
+#[rustfmt::skip] impl_onnx_tensor_dtype!(f32, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT);
+#[rustfmt::skip] impl_onnx_tensor_dtype!(f64, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_DOUBLE);
+#[rustfmt::skip] impl_onnx_tensor_dtype!(bool, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL);
+#[rustfmt::skip] impl_onnx_tensor_dtype!(u8, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8);
+#[rustfmt::skip] impl_onnx_tensor_dtype!(u16, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT16);
+#[rustfmt::skip] impl_onnx_tensor_dtype!(u32, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT32);
+#[rustfmt::skip] impl_onnx_tensor_dtype!(u64, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT64);
+#[rustfmt::skip] impl_onnx_tensor_dtype!(i8, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8);
+#[rustfmt::skip] impl_onnx_tensor_dtype!(i16, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT16);
+#[rustfmt::skip] impl_onnx_tensor_dtype!(i32, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32);
+#[rustfmt::skip] impl_onnx_tensor_dtype!(i64, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64);
