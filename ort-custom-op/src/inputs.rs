@@ -33,7 +33,7 @@ pub trait Inputs<'a>: Sized {
     }
 }
 
-trait TryFromValue<'s>: Sized {
+pub trait TryFromValue<'s>: Sized {
     fn try_from_value(value: Value<'s>) -> Result<Self>;
 }
 

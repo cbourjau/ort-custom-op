@@ -39,7 +39,7 @@ macro_rules! impl_output_non_string {
                 let shape = self.shape();
                 let shape_i64: Vec<_> = shape.iter().map(|v| *v as i64).collect();
                 let val = unsafe { ctx.get_output(api, idx, &shape_i64) }.unwrap();
-                let mut arr = val.as_array_mut(api).unwrap();
+                let mut arr = unsafe { val.as_array_mut(api).unwrap() };
                 arr.assign(&self);
             }
         }

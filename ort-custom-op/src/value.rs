@@ -56,14 +56,16 @@ pub(crate) enum BufferMaybeOwned<'s> {
     String(StringBuffer),
 }
 
-/// Object owning the contiguous String buffer.
+/// Object owning the contiguous String buffer and the associated offsets.
 pub(crate) struct StringBuffer {
     buf: Vec<u8>,
     offsets: Vec<usize>,
 }
 
 impl<'s> BufferMaybeOwned<'s> {
-    pub fn load_from_ort(
+    /// Load data from `OrtValue`. It is the callers responsibility to
+    /// ensure that the `dtype` is correct.
+    pub unsafe fn load_from_ort(
         api: &OrtApi,
         ort_value: &'s mut OrtValue,
         dtype: &ElementType,

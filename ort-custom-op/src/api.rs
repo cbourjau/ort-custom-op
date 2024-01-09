@@ -1,10 +1,11 @@
 use std::ffi::CString;
 
 use anyhow::{bail, Result};
-use ndarray::{ArrayD, ArrayView, ArrayViewD, ArrayViewMut, ArrayViewMutD};
+use ndarray::{ArrayD, ArrayViewD, ArrayViewMut, ArrayViewMutD};
 
 use crate::bindings::*;
 use crate::error::ErrorStatus;
+use crate::inputs::TryFromValue;
 use crate::value::{BufferMaybeOwned, ValueBuffer};
 
 pub const API_VERSION: u32 = 16;
@@ -98,8 +99,9 @@ impl OrtValue {
         Ok(num)
     }
 
-    /// Load tensor buffer data
-    fn load_tensor_buffer<'s>(
+    /// Load tensor buffer data. It is the callers responsibility that
+    /// the `dtype` matches the loaded data.
+    unsafe fn load_tensor_buffer<'s>(
         &'s mut self,
         api: &OrtApi,
         dtype: ElementType,
@@ -111,19 +113,15 @@ impl OrtValue {
         })
     }
 
-    pub fn as_array<T>(&mut self, api: &OrtApi) -> Result<ArrayViewD<T>> {
-        let shape = self.shape(api)?;
-        let data = self.get_data_mut(api)?;
-        Ok(ArrayView::from(data as &_).into_shape(shape.as_slice())?)
-    }
-
-    pub fn as_array_mut<T>(&mut self, api: &OrtApi) -> Result<ArrayViewMutD<T>> {
+    /// Get a mutable view for this `Value`. The type is not validated.
+    pub unsafe fn as_array_mut<T>(&mut self, api: &OrtApi) -> Result<ArrayViewMutD<T>> {
         let shape = self.shape(api)?;
         let data = self.get_data_mut(api)?;
         Ok(ArrayViewMut::from(data).into_shape(shape.as_slice())?)
     }
 
-    pub(crate) fn get_data_mut<'s, T>(&'s mut self, api: &OrtApi) -> Result<&'s mut [T]> {
+    /// Get mutable slice for this Value. This function does not validate the type.
+    pub(crate) unsafe fn get_data_mut<'s, T>(&'s mut self, api: &OrtApi) -> Result<&'s mut [T]> {
         if self.onnx_type(api)? != ONNXType_ONNX_TYPE_TENSOR {
             bail!("OrtValue is not a tensor")
         }
@@ -209,7 +207,10 @@ impl OrtKernelContext {
                         let info = value.get_tensor_type_and_shape(api)?;
                         (info.get_element_type()?, info.shape()?)
                     };
-                    inputs.push(value.load_tensor_buffer(api, dtype, shape)?);
+                    // Unsafe invariant: dtype must match value
+                    unsafe {
+                        inputs.push(value.load_tensor_buffer(api, dtype, shape)?);
+                    }
                 }
                 _ => bail!("Only tensor inputs are supported."),
             }
@@ -382,7 +383,13 @@ impl<'info> KernelInfo<'info> {
         Ok(buf)
     }
 
-    pub fn get_attribute_tensor<'s, T>(&'s self, name: &str) -> Result<ArrayViewD<'s, T>> {
+    /// Get array from attribute Tensor. String tensors are not yet supported.
+    pub fn get_attribute_tensor<T>(&self, name: &str) -> Result<ArrayD<T>>
+    where
+        T: Copy,
+        for<'s> ArrayViewD<'s, T>: TryFromValue<'s>,
+    {
+        // Todo: What is going on with the allocator here?
         let get_alloc = self.api.GetAllocatorWithDefaultOptions.unwrap();
         let mut alloc = std::ptr::null_mut();
 
@@ -398,8 +405,17 @@ impl<'info> KernelInfo<'info> {
                 &mut *value
             }
         };
+        let (dtype, shape) = {
+            let info = value.get_tensor_type_and_shape(self.api)?;
+            (info.get_element_type()?, info.shape()?)
+        };
 
-        value.as_array(self.api)
+        // Unsafe invariant: dtype must match value
+        let buf = unsafe { value.load_tensor_buffer(self.api, dtype, shape)? };
+        let buf = buf.normalize_buffers();
+
+        let view = <ArrayViewD<'_, T>>::try_from_value(buf.as_value()?)?;
+        Ok(view.to_owned())
     }
 }
 

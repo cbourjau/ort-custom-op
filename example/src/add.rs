@@ -12,7 +12,7 @@ pub struct CustomAdd<T> {
 impl<T> CustomOp for CustomAdd<T>
 where
     T: 'static + Add<T, Output = T> + Clone,
-    for<'foo> (ArrayViewD<'foo, T>, ArrayViewD<'foo, T>): Inputs<'foo>,
+    for<'a> (ArrayViewD<'a, T>, ArrayViewD<'a, T>): Inputs<'a>,
     (ArrayD<T>,): Outputs,
 {
     type KernelCreateError = Infallible;
