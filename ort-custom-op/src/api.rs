@@ -5,7 +5,7 @@ use ndarray::{Array, ArrayD, ArrayView, ArrayViewD, ArrayViewMut, ArrayViewMutD}
 
 use crate::bindings::*;
 use crate::error::ErrorStatus;
-use crate::value::{TensorString, Value};
+use crate::value::{BufferMaybeOwned, Value, ValueBuffer};
 
 pub const API_VERSION: u32 = 16;
 
@@ -15,10 +15,12 @@ pub struct KernelInfo<'s> {
     info: &'s OrtKernelInfo,
 }
 
-pub enum ElementType {
+pub(crate) enum ElementType {
     Bool,
     F32,
     F64,
+    I8,
+    I16,
     I32,
     I64,
     U8,
@@ -67,7 +69,7 @@ pub fn create_custom_op_domain(
 /// Explicit struct around OrtTypeAndShapeInfo pointer since we are
 /// responsible for properly dropping it.
 #[derive(Debug)]
-struct TensorTypeAndShapeInfo<'s> {
+pub(crate) struct TensorTypeAndShapeInfo<'s> {
     api: &'s OrtApi,
     // must be mut so that we can later drop it
     info: &'s mut OrtTensorTypeAndShapeInfo,
@@ -96,27 +98,16 @@ impl OrtValue {
         Ok(num)
     }
 
-    pub fn load_value<'s>(&'s mut self, api: &OrtApi) -> Result<Value<'s>> {
-        Ok(match self.onnx_type(&api)? {
-            ONNXType_ONNX_TYPE_TENSOR => {
-                let (ty, shape) = {
-                    let info = self.get_tensor_type_and_shape(&api)?;
-                    (info.get_element_type()?, info.get_dimensions()?)
-                };
-                match ty {
-                    ElementType::I32 => Value::TensorI32(self.as_array(api)?),
-                    ElementType::String => {
-                        let (buf, offsets) = self.get_string_tensor_single_buf(api)?;
-                        Value::TensorString(TensorString {
-                            buf,
-                            shape: shape.into_iter().map(|n| n as usize).collect(),
-                            offsets,
-                        })
-                    }
-                    _ => panic!(),
-                }
-            }
-            _ => panic!(),
+    /// Load tensor buffer data
+    fn load_tensor_buffer<'s>(
+        &'s mut self,
+        api: &OrtApi,
+        dtype: ElementType,
+        shape: Vec<usize>,
+    ) -> Result<ValueBuffer<BufferMaybeOwned<'s>, Vec<usize>>> {
+        Ok(ValueBuffer::Tensor {
+            buf: BufferMaybeOwned::load_from_ort(api, self, &dtype)?,
+            shape,
         })
     }
 
@@ -132,7 +123,7 @@ impl OrtValue {
         Ok(ArrayViewMut::from(data).into_shape(shape.as_slice())?)
     }
 
-    fn get_data_mut<'s, T>(&'s mut self, api: &OrtApi) -> Result<&'s mut [T]> {
+    pub(crate) fn get_data_mut<'s, T>(&'s mut self, api: &OrtApi) -> Result<&'s mut [T]> {
         if self.onnx_type(api)? != ONNXType_ONNX_TYPE_TENSOR {
             bail!("OrtValue is not a tensor")
         }
@@ -177,7 +168,10 @@ impl OrtValue {
 
     /// Get string data as a single buffer along with the offsets to
     /// the beginning of each element.
-    fn get_string_tensor_single_buf(&self, api: &OrtApi) -> Result<(Vec<u8>, Vec<usize>)> {
+    pub(crate) fn get_string_tensor_single_buf(
+        &self,
+        api: &OrtApi,
+    ) -> Result<(Vec<u8>, Vec<usize>)> {
         let fun_ptr = api.GetStringTensorContent.unwrap();
 
         let info = self.get_tensor_type_and_shape(api)?;
@@ -245,12 +239,23 @@ impl OrtValue {
 }
 
 impl OrtKernelContext {
-    pub(crate) fn get_input_values<'s>(&'s self, api: &OrtApi) -> Result<Vec<Value<'s>>> {
+    pub(crate) fn get_input_values<'s>(
+        &'s self,
+        api: &OrtApi,
+    ) -> Result<Vec<ValueBuffer<BufferMaybeOwned<'s>, Vec<usize>>>> {
         let n_inputs = self.get_input_count(api)?;
         let mut inputs = Vec::with_capacity(n_inputs);
         for idx in 0..n_inputs {
             let value = self.get_input(api, idx)?;
-            inputs.push(value.load_value(api)?);
+            match value.onnx_type(api) {
+                _ => {
+                    let (dtype, shape) = {
+                        let info = value.get_tensor_type_and_shape(api)?;
+                        (info.get_element_type()?, info.shape()?)
+                    };
+                    inputs.push(value.load_tensor_buffer(api, dtype, shape)?);
+                }
+            }
         }
         Ok(inputs)
     }
@@ -460,7 +465,15 @@ impl<'info> KernelInfo<'info> {
 }
 
 impl<'s> TensorTypeAndShapeInfo<'s> {
-    fn get_dimensions(&self) -> Result<Vec<i64>> {
+    pub fn shape(&self) -> Result<Vec<usize>> {
+        Ok(self
+            .get_dimensions()?
+            .into_iter()
+            .map(|el| el as usize)
+            .collect())
+    }
+
+    pub(crate) fn get_dimensions(&self) -> Result<Vec<i64>> {
         let mut n_dim = 0;
         unsafe { self.api.GetDimensionsCount.unwrap()(self.info, &mut n_dim) };
         let mut out = Vec::with_capacity(n_dim);
@@ -479,8 +492,7 @@ impl<'s> TensorTypeAndShapeInfo<'s> {
         Ok(element_count)
     }
 
-    #[allow(unused)]
-    fn get_element_type(&self) -> Result<ElementType> {
+    pub(crate) fn get_element_type(&self) -> Result<ElementType> {
         unimplemented!()
     }
 }
@@ -499,6 +511,8 @@ impl ElementType {
             Self::F32 => ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
             Self::F64 => ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_DOUBLE,
 
+            Self::I8 => ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8,
+            Self::I16 => ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT16,
             Self::I32 => ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32,
             Self::I64 => ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64,
 
@@ -519,6 +533,8 @@ impl ElementType {
             ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT => Self::F32,
             ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_DOUBLE => Self::F64,
 
+            ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8 => Self::I8,
+            ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT16 => Self::I16,
             ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32 => Self::I32,
             ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64 => Self::I64,
 

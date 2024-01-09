@@ -1,152 +1,194 @@
-use crate::api::ElementType;
 use crate::bindings::{
-    OrtApi, OrtCustomOpInputOutputCharacteristic,
+    ONNXTensorElementDataType, OrtCustomOpInputOutputCharacteristic,
     OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_REQUIRED,
-    OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_VARIADIC, OrtKernelContext,
+    OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_VARIADIC,
 };
+use crate::value::Value;
+use anyhow::{bail, Result};
+use ndarray::{Array, ArrayD, ArrayView, ArrayViewD};
 
-use ndarray::{ArrayD, ArrayViewD};
+pub trait Inputs<'a>: Sized {
+    /// Is the variadic part of the inputs (if any) homogeneous?
+    const VARIADIC_IS_HOMOGENEOUS: Option<bool>;
+    /// Number of positional (i.e. non-variadic) inputs
+    const NUM_POSITIONAL: usize;
 
-/// Trait which qualifies types to be used as input to the
-/// `kernel_compute` function of the custom operator.
-trait Inputs<'s> {
-    const CHARACTERISTICS: &'static [OrtCustomOpInputOutputCharacteristic];
+    /// Create inputs from `Value` objects
+    fn try_from_values(values: &'a [Value]) -> Result<Self>;
 
-    // TODO: Make this configurable? Why does this even exists?!
-    const VARIADIC_MIN_ARITY: usize;
+    /// Tensor data type of this input, or `None` if it is not a Tensor
+    fn tensor_data_type(index: usize) -> Option<ONNXTensorElementDataType>;
 
-    // Not clear why this exists...
-    const VARIADIC_IS_HOMOGENEOUS: bool;
-
-    /// Input types of this kernel.
-    ///
-    /// Homogeneous variadic inputs have the `ElementType` of their
-    /// items. Heterogeneous variadic inputs have `Unknown` element
-    /// type.
-    const INPUT_TYPES: &'static [ElementType];
-
-    fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext) -> Self;
-}
-trait Input<'s> {
-    const INPUT_TYPE: ElementType;
-    const CHARACTERISTIC: OrtCustomOpInputOutputCharacteristic;
-
-    fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext, idx: usize) -> Self;
-}
-
-trait LastInput<'s> {
-    const CHARACTERISTIC: OrtCustomOpInputOutputCharacteristic;
-
-    // TODO: Make this configurable?
-    const VARIADIC_MIN_ARITY: usize = 1;
-    const VARIADIC_IS_HOMOGENEOUS: bool;
-    const INPUT_TYPE: ElementType;
-
-    fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext, idx: usize) -> Self;
-}
-
-impl<'s, T> LastInput<'s> for T
-where
-    T: Input<'s>,
-{
-    const CHARACTERISTIC: OrtCustomOpInputOutputCharacteristic = T::CHARACTERISTIC;
-    // Not applicable
-    const VARIADIC_IS_HOMOGENEOUS: bool = false;
-    const INPUT_TYPE: ElementType = T::INPUT_TYPE;
-
-    fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext, idx: usize) -> Self {
-        T::from_ort(api, ctx, idx)
-    }
-}
-impl<'s, T> LastInput<'s> for Vec<T>
-where
-    T: Input<'s>,
-{
-    const CHARACTERISTIC: OrtCustomOpInputOutputCharacteristic =
-        OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_VARIADIC;
-    const VARIADIC_IS_HOMOGENEOUS: bool = true;
-    const INPUT_TYPE: ElementType = T::INPUT_TYPE;
-
-    fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext, first_idx: usize) -> Self {
-        let n_total = ctx.get_input_count(api).expect("Retrieve number of inputs");
-        (first_idx..n_total)
-            .map(|idx| T::from_ort(api, ctx, idx))
-            .collect()
+    /// Get the "characteristic" of an input (i.e. if it is
+    /// optional). Panics if `index` is out-of-range.
+    fn characteristic(index: usize) -> OrtCustomOpInputOutputCharacteristic {
+        // Everything is either required or variadic for now
+        if index < Self::NUM_POSITIONAL {
+            OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_REQUIRED
+        } else if index == Self::NUM_POSITIONAL && Self::VARIADIC_IS_HOMOGENEOUS.is_some() {
+            OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_VARIADIC
+        } else {
+            panic!("Provided index '{}' is out of range", index)
+        }
     }
 }
 
-macro_rules! impl_input_non_string {
-    ($ty:ty, $variant:tt) => {
-        impl<'s> Input<'s> for ArrayViewD<'s, $ty> {
-            const INPUT_TYPE: ElementType = ElementType::$variant;
-            const CHARACTERISTIC: OrtCustomOpInputOutputCharacteristic =
-                OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_REQUIRED;
+trait TryFromValue<'s>: Sized {
+    fn try_from_value(value: &'s Value) -> Result<Self>;
+}
 
-            fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext, idx: usize) -> Self {
-                ctx.get_input_array::<$ty>(api, idx)
-                    .expect("Loading input data of given type failed.")
+/// Get ONNX tensor data type id if possible
+trait OnnxTensorDtype {
+    fn dtype_id() -> Option<ONNXTensorElementDataType>;
+}
+
+/////////////////////
+// Implementations //
+/////////////////////
+
+impl<'s> TryFromValue<'s> for ArrayViewD<'s, &'s str> {
+    fn try_from_value(value: &'s Value) -> Result<Self> {
+        if let Value::TensorStr(arr) = value {
+            Ok(arr.view())
+        } else {
+            bail!("Expected 'String' tensor, found {:?}", value)
+        }
+    }
+}
+
+macro_rules! impl_try_from {
+    ($ty:ty, $variant:path) => {
+        impl<'a> TryFromValue<'a> for ArrayViewD<'a, $ty> {
+            fn try_from_value(value: &'a Value) -> Result<Self> {
+                if let $variant(arr) = value {
+                    Ok(arr.view())
+                } else {
+                    bail!("Expected '{}' tensor, found {:?}", stringify!($ty), value)
+                }
             }
         }
     };
 }
 
-impl_input_non_string!(bool, Bool);
-impl_input_non_string!(f32, F32);
-impl_input_non_string!(f64, F64);
-impl_input_non_string!(i32, I32);
-impl_input_non_string!(i64, I64);
-impl_input_non_string!(u16, U16);
-impl_input_non_string!(u32, U32);
-impl_input_non_string!(u64, U64);
-impl_input_non_string!(u8, U8);
+impl_try_from!(u8, Value::TensorU8);
+impl_try_from!(u64, Value::TensorU64);
+impl_try_from!(u32, Value::TensorU32);
+impl_try_from!(u16, Value::TensorU16);
+impl_try_from!(i8, Value::TensorI8);
+impl_try_from!(i64, Value::TensorI64);
+impl_try_from!(i32, Value::TensorI32);
+impl_try_from!(i16, Value::TensorI16);
+impl_try_from!(f64, Value::TensorF64);
+impl_try_from!(f32, Value::TensorF32);
 
-impl<'s> Input<'s> for ArrayD<String> {
-    const INPUT_TYPE: ElementType = ElementType::String;
-    const CHARACTERISTIC: OrtCustomOpInputOutputCharacteristic =
-        OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_REQUIRED;
+// This could be implemented using the below macro, but then we would
+// have to disable some lints.
+impl<'s, A> Inputs<'s> for (Vec<A>,)
+where
+    A: TryFromValue<'s> + OnnxTensorDtype,
+{
+    const VARIADIC_IS_HOMOGENEOUS: Option<bool> = Some(true);
+    const NUM_POSITIONAL: usize = 0;
 
-    fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext, idx: usize) -> Self {
-        ctx.get_input_array_string(api, idx)
-            .expect("Loading input data of given type failed.")
+    fn try_from_values(values: &'s [Value]) -> Result<Self> {
+        let rest = values
+            .iter()
+            .map(|el| TryFromValue::try_from_value(el))
+            .collect::<Result<_, _>>()?;
+
+        Ok((rest,))
+    }
+
+    fn tensor_data_type(idx: usize) -> Option<ONNXTensorElementDataType> {
+        [A::dtype_id()][idx]
     }
 }
 
 macro_rules! impl_inputs {
-    ($($idx:literal: $param:tt),* | $last_idx:literal: $last_param:tt ) => {
-        impl<'s, $($param,)* $last_param> Inputs<'s> for ($($param,)* $last_param, )
+    ($n_min:literal, $is_variadic:literal, $($var_ty:ident)? | $($positional_ty:ident),*) => {
+        impl<'s, $($positional_ty,)* $($var_ty)*> Inputs<'s> for ($($positional_ty,)* $(Vec<$var_ty>,)*)
         where
-            $($param : Input<'s>,)*
-            $last_param : LastInput<'s>,
+            $($positional_ty: TryFromValue<'s> + OnnxTensorDtype,)*
+            $($var_ty: TryFromValue<'s> + OnnxTensorDtype,)*
         {
-            const CHARACTERISTICS: &'static [OrtCustomOpInputOutputCharacteristic] =
-                &[
-                    $(<$param as Input>::CHARACTERISTIC,)* $last_param::CHARACTERISTIC
-                ];
-            const VARIADIC_MIN_ARITY: usize = $last_param::VARIADIC_MIN_ARITY;
-            const VARIADIC_IS_HOMOGENEOUS: bool = $last_param::VARIADIC_IS_HOMOGENEOUS;
+            const VARIADIC_IS_HOMOGENEOUS: Option<bool> = if $is_variadic {Some(true)} else { None };
+            const NUM_POSITIONAL: usize = $n_min;
 
-            const INPUT_TYPES: &'static [ElementType] = &[
-                $(<$param as Input>::INPUT_TYPE,)* $last_param::INPUT_TYPE
-            ];
+            fn try_from_values(values: &'s [Value]) -> Result<Self>
+            {
+                if $is_variadic {
+                    if values.len() < $n_min {
+                        bail!("expected at least {} inputs; found {}", $n_min, values.len())
+                    }
+                } else if values.len() != $n_min {
+                    bail!("expected {} inputs; found {}", $n_min, values.len())
+                }
 
-            fn from_ort(api: &OrtApi, ctx: &'s OrtKernelContext) -> Self {
+                let mut iter = values.iter();
 
-                (
-                    $($param::from_ort(api, ctx, $idx), )* $last_param::from_ort(api, ctx, $last_idx),
-
-                )
+                Ok((
+                    $(<$positional_ty as TryFromValue>::try_from_value(iter.next().unwrap())?,)*
+                        $(iter.map(|el| TryFromValue::try_from_value(el)).collect::<Result<Vec<$var_ty>, _>>()?,)*
+                ))
+            }
+            fn tensor_data_type(idx: usize) -> Option<ONNXTensorElementDataType> {
+                [
+                    $($positional_ty::dtype_id(),)*
+                        $($var_ty::dtype_id())*
+                ][idx]
             }
         }
     };
 }
-impl_inputs! {|0: Z}
-impl_inputs! {0: A | 1: Z}
-impl_inputs! {0: A, 1: B | 2: Z}
-impl_inputs! {0: A, 1: B, 2: C | 3: Z}
-impl_inputs! {0: A, 1: B, 2: C, 3: D | 4: Z}
-impl_inputs! {0: A, 1: B, 2: C, 3: D, 4: E | 5: Z}
-impl_inputs! {0: A, 1: B, 2: C, 3: D, 4: E, 5: F | 6: Z}
-impl_inputs! {0: A, 1: B, 2: C, 3: D, 4: E, 5: F, 6: G | 7: Z}
-impl_inputs! {0: A, 1: B, 2: C, 3: D, 4: E, 5: F, 6: G, 7: H | 8: Z}
-impl_inputs! {0: A, 1: B, 2: C, 3: D, 4: E, 5: F, 6: G, 7: H, 8: I | 9: Z}
-impl_inputs! {0: A, 1: B, 2: C, 3: D, 4: E, 5: F, 6: G, 7: H, 8: I, 9: J | 10: Z}
+
+// // Positional-only implementations
+impl_inputs!(1, false, | A);
+impl_inputs!(2, false, | A, B);
+impl_inputs!(3, false, | A, B, C);
+impl_inputs!(4, false, | A, B, C, D);
+impl_inputs!(5, false, | A, B, C, D, E);
+impl_inputs!(6, false, | A, B, C, D, E, F);
+impl_inputs!(7, false, | A, B, C, D, E, F, G);
+impl_inputs!(8, false, | A, B, C, D, E, F, G, H);
+impl_inputs!(9, false, | A, B, C, D, E, F, G, H, I);
+impl_inputs!(10, false, | A, B, C, D, E, F, G, H, I, J);
+
+// // Variadic implementations; variadic input must be homogeneous, but may be empty
+impl_inputs!(1, true, Z | A);
+impl_inputs!(2, true, Z | A, B);
+impl_inputs!(3, true, Z | A, B, C);
+impl_inputs!(4, true, Z | A, B, C, D);
+impl_inputs!(5, true, Z | A, B, C, D, E);
+impl_inputs!(6, true, Z | A, B, C, D, E, F);
+impl_inputs!(7, true, Z | A, B, C, D, E, F, G);
+impl_inputs!(8, true, Z | A, B, C, D, E, F, G, H);
+impl_inputs!(9, true, Z | A, B, C, D, E, F, G, H, I);
+impl_inputs!(10, true, Z | A, B, C, D, E, F, G, H, I, J);
+
+impl<'s> OnnxTensorDtype for ArrayD<&'s str> {
+    fn dtype_id() -> Option<ONNXTensorElementDataType> {
+        Some(crate::bindings::ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_STRING)
+    }
+}
+
+macro_rules! impl_onnx_tensor_dtype {
+    ($ty:ty, $ident:ident) => {
+        impl<'s> OnnxTensorDtype for ArrayViewD<'s, $ty> {
+            fn dtype_id() -> Option<ONNXTensorElementDataType> {
+                Some(crate::bindings::$ident)
+            }
+        }
+    };
+}
+
+#[rustfmt::skip] impl_onnx_tensor_dtype!(f32, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT);
+#[rustfmt::skip] impl_onnx_tensor_dtype!(f64, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_DOUBLE);
+#[rustfmt::skip] impl_onnx_tensor_dtype!(bool, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL);
+#[rustfmt::skip] impl_onnx_tensor_dtype!(u8, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8);
+#[rustfmt::skip] impl_onnx_tensor_dtype!(u16, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT16);
+#[rustfmt::skip] impl_onnx_tensor_dtype!(u32, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT32);
+#[rustfmt::skip] impl_onnx_tensor_dtype!(u64, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT64);
+#[rustfmt::skip] impl_onnx_tensor_dtype!(i8, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8);
+#[rustfmt::skip] impl_onnx_tensor_dtype!(i16, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT16);
+#[rustfmt::skip] impl_onnx_tensor_dtype!(i32, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32);
+#[rustfmt::skip] impl_onnx_tensor_dtype!(i64, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64);

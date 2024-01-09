@@ -7,8 +7,9 @@ use crate::bindings::{
     OrtErrorCode_ORT_RUNTIME_EXCEPTION, OrtKernelContext, OrtKernelInfo, OrtMemType,
     OrtMemType_OrtMemTypeDefault, OrtStatus,
 };
+pub use crate::inputs::Inputs;
 pub use crate::outputs::Outputs;
-pub use crate::value::Inputs;
+use crate::value::ValueBuffer;
 
 /// Trait defining the behavior of a custom operator.
 pub trait CustomOp {
@@ -173,9 +174,11 @@ where
 
     let context = context_ptr.as_mut::<'ctx>().unwrap();
     let outputs = {
-        let input_values = bail_on_error!(api, context.get_input_values(api));
-        let input_values = input_values.as_slice();
-        let tuple = bail_on_error!(api, Inputs::try_from_values(input_values));
+        let bufs = bail_on_error!(api, context.get_input_values(api));
+        let bufs: Vec<_> = bufs.iter().map(|el| el.normalize_buffers()).collect();
+        let input_values: anyhow::Result<Vec<_>> = bufs.iter().map(|el| el.as_value()).collect();
+        let input_values = bail_on_error!(api, input_values);
+        let tuple = bail_on_error!(api, Inputs::try_from_values(input_values.as_slice()));
         bail_on_error!(api, user_kernel.kernel_compute(tuple))
     };
 

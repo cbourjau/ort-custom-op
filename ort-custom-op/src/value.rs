@@ -1,11 +1,11 @@
-use crate::bindings::{
-    ONNXTensorElementDataType, OrtCustomOpInputOutputCharacteristic,
-    OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_REQUIRED,
-    OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_VARIADIC,
+use crate::{
+    api::ElementType,
+    bindings::{OrtApi, OrtValue},
 };
-use anyhow::{bail, Result};
-use ndarray::{Array, ArrayD, ArrayViewD};
+use anyhow::Result;
+use ndarray::{ArrayView, ArrayViewD};
 
+/// Enum over all currently supported input value types.
 #[derive(Debug)]
 pub enum Value<'a> {
     TensorBool(ArrayViewD<'a, bool>),
@@ -19,221 +19,140 @@ pub enum Value<'a> {
     TensorU32(ArrayViewD<'a, u32>),
     TensorU64(ArrayViewD<'a, u64>),
     TensorU8(ArrayViewD<'a, u8>),
-
-    TensorString(TensorString),
+    TensorStr(ArrayViewD<'a, &'a str>),
 }
 
-#[derive(Debug)]
-pub struct TensorString {
-    pub buf: Vec<u8>,
-    pub offsets: Vec<usize>,
-    pub shape: Vec<usize>,
+pub(crate) enum ValueBuffer<Buf, Shape> {
+    Tensor { buf: Buf, shape: Shape },
 }
 
-pub trait Inputs<'a>: Sized {
-    /// Is the variadic part of the inputs (if any) homogeneous?
-    const VARIADIC_IS_HOMOGENEOUS: Option<bool>;
-    /// Number of positional (i.e. non-variadic) inputs
-    const NUM_POSITIONAL: usize;
+pub(crate) enum Buffer<'s> {
+    Bool(&'s [bool]),
+    F32(&'s [f32]),
+    F64(&'s [f64]),
+    I16(&'s [i16]),
+    I32(&'s [i32]),
+    I64(&'s [i64]),
+    I8(&'s [i8]),
+    U16(&'s [u16]),
+    U32(&'s [u32]),
+    U64(&'s [u64]),
+    U8(&'s [u8]),
+    Str(Vec<&'s str>),
+}
 
-    /// Create inputs from `Value` objects
-    fn try_from_values(values: &'a [Value]) -> Result<Self>;
+pub(crate) enum BufferMaybeOwned<'s> {
+    Bool(&'s [bool]),
+    F32(&'s [f32]),
+    F64(&'s [f64]),
+    I16(&'s [i16]),
+    I32(&'s [i32]),
+    I64(&'s [i64]),
+    I8(&'s [i8]),
+    U16(&'s [u16]),
+    U32(&'s [u32]),
+    U64(&'s [u64]),
+    U8(&'s [u8]),
+    String(StringBuffer),
+}
 
-    /// Tensor data type of this input, or `None` if it is not a Tensor
-    fn tensor_data_type(index: usize) -> Option<ONNXTensorElementDataType>;
+/// Object owning the contiguous String buffer.
+struct StringBuffer {
+    buf: Vec<u8>,
+    offsets: Vec<usize>,
+}
 
-    /// Get the "characteristic" of an input (i.e. if it is
-    /// optional). Panics if `index` is out-of-range.
-    fn characteristic(index: usize) -> OrtCustomOpInputOutputCharacteristic {
-        // Everything is either required or variadic for now
-        if index < Self::NUM_POSITIONAL {
-            OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_REQUIRED
-        } else if index == Self::NUM_POSITIONAL && Self::VARIADIC_IS_HOMOGENEOUS.is_some() {
-            OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_VARIADIC
-        } else {
-            panic!("Provided index '{}' is out of range", index)
+impl<'s> BufferMaybeOwned<'s> {
+    pub fn load_from_ort(
+        api: &OrtApi,
+        ort_value: &'s mut OrtValue,
+        dtype: &ElementType,
+    ) -> Result<Self> {
+        // tensor data
+        Ok(match dtype {
+            ElementType::U8 => Self::U8(ort_value.get_data_mut(api)?),
+            ElementType::U16 => Self::U16(ort_value.get_data_mut(api)?),
+            ElementType::U32 => Self::U32(ort_value.get_data_mut(api)?),
+            ElementType::U64 => Self::U64(ort_value.get_data_mut(api)?),
+            ElementType::I8 => Self::I8(ort_value.get_data_mut(api)?),
+            ElementType::I16 => Self::I16(ort_value.get_data_mut(api)?),
+            ElementType::I32 => Self::I32(ort_value.get_data_mut(api)?),
+            ElementType::I64 => Self::I64(ort_value.get_data_mut(api)?),
+            ElementType::F32 => Self::F32(ort_value.get_data_mut(api)?),
+            ElementType::F64 => Self::F64(ort_value.get_data_mut(api)?),
+            ElementType::Bool => Self::Bool(ort_value.get_data_mut(api)?),
+            ElementType::String => {
+                let (buf, offsets) = ort_value.get_string_tensor_single_buf(api)?;
+                Self::String(StringBuffer { buf, offsets })
+            }
+        })
+    }
+
+    pub fn view(&self) -> Buffer {
+        match self {
+            Self::Bool(buf) => Buffer::Bool(buf),
+            Self::F32(buf) => Buffer::F32(buf),
+            Self::F64(buf) => Buffer::F64(buf),
+            Self::I16(buf) => Buffer::I16(buf),
+            Self::I32(buf) => Buffer::I32(buf),
+            Self::I64(buf) => Buffer::I64(buf),
+            Self::I8(buf) => Buffer::I8(buf),
+            Self::U16(buf) => Buffer::U16(buf),
+            Self::U32(buf) => Buffer::U32(buf),
+            Self::U64(buf) => Buffer::U64(buf),
+            Self::U8(buf) => Buffer::U8(buf),
+            Self::String(string_buf) => Buffer::Str(string_buf.vec_of_strs()),
         }
     }
 }
 
-trait TryFromValue<'s>: Sized {
-    fn try_from_value(value: &'s Value) -> Result<Self>;
-}
-
-/// Get ONNX tensor data type id if possible
-trait OnnxTensorDtype {
-    fn dtype_id() -> Option<ONNXTensorElementDataType>;
-}
-
-/////////////////////
-// Implementations //
-/////////////////////
-
-impl TensorString {
-    fn as_owned_array(&self) -> Result<ArrayD<&str>> {
-        // Compute windows with the start and end of each
-        // substring and then scan the buffer.
+impl StringBuffer {
+    fn vec_of_strs(&self) -> Vec<&str> {
         let very_end = [self.buf.len()];
         let starts = self.offsets.iter();
         let ends = self.offsets.iter().chain(very_end.iter()).skip(1);
         let windows = starts.zip(ends);
-        let strings: Vec<_> = windows
+        windows
             .scan(self.buf.as_slice(), |buf: &mut &[u8], (start, end)| {
                 let (this, rest) = buf.split_at(end - start);
                 *buf = rest;
                 std::str::from_utf8(this).ok()
             })
-            .collect();
-
-        Ok(Array::from_vec(strings)
-            .into_shape(self.shape.as_slice())
-            .expect("Shape information was incorrect."))
+            .collect()
     }
 }
 
-impl<'s> TryFromValue<'s> for ArrayD<&'s str> {
-    fn try_from_value(value: &'s Value) -> Result<Self> {
-        if let Value::TensorString(tensor_string) = value {
-            Ok(tensor_string.as_owned_array()?)
-        } else {
-            bail!("Expected 'String' tensor, found {:?}", value)
+impl<'s> ValueBuffer<BufferMaybeOwned<'s>, Vec<usize>> {
+    pub fn normalize_buffers(&'s self) -> ValueBuffer<Buffer<'s>, &'s [usize]> {
+        match self {
+            Self::Tensor { buf, shape } => ValueBuffer::Tensor {
+                shape: shape.as_slice(),
+                buf: buf.view(),
+            },
         }
     }
 }
 
-macro_rules! impl_try_from {
-    ($ty:ty, $variant:path) => {
-        impl<'a> TryFromValue<'a> for ArrayViewD<'a, $ty> {
-            fn try_from_value(value: &'a Value) -> Result<Self> {
-                if let $variant(arr) = value {
-                    Ok(arr.view())
-                } else {
-                    bail!("Expected '{}' tensor, found {:?}", stringify!($ty), value)
+impl<'s> ValueBuffer<Buffer<'s>, &'s [usize]> {
+    pub fn as_value(&'s self) -> Result<Value<'s>> {
+        Ok(match self {
+            Self::Tensor { shape, buf } => {
+                let shape = *shape;
+                match buf {
+                    Buffer::Bool(buf) => Value::TensorBool(ArrayView::from(buf).into_shape(shape)?),
+                    Buffer::F32(buf) => Value::TensorF32(ArrayView::from(buf).into_shape(shape)?),
+                    Buffer::F64(buf) => Value::TensorF64(ArrayView::from(buf).into_shape(shape)?),
+                    Buffer::I16(buf) => Value::TensorI16(ArrayView::from(buf).into_shape(shape)?),
+                    Buffer::I32(buf) => Value::TensorI32(ArrayView::from(buf).into_shape(shape)?),
+                    Buffer::I64(buf) => Value::TensorI64(ArrayView::from(buf).into_shape(shape)?),
+                    Buffer::I8(buf) => Value::TensorI8(ArrayView::from(buf).into_shape(shape)?),
+                    Buffer::U16(buf) => Value::TensorU16(ArrayView::from(buf).into_shape(shape)?),
+                    Buffer::U32(buf) => Value::TensorU32(ArrayView::from(buf).into_shape(shape)?),
+                    Buffer::U64(buf) => Value::TensorU64(ArrayView::from(buf).into_shape(shape)?),
+                    Buffer::U8(buf) => Value::TensorU8(ArrayView::from(buf).into_shape(shape)?),
+                    Buffer::Str(buf) => Value::TensorStr(ArrayView::from(buf).into_shape(shape)?),
                 }
             }
-        }
-    };
-}
-
-impl_try_from!(u8, Value::TensorU8);
-impl_try_from!(u64, Value::TensorU64);
-impl_try_from!(u32, Value::TensorU32);
-impl_try_from!(u16, Value::TensorU16);
-impl_try_from!(i8, Value::TensorI8);
-impl_try_from!(i64, Value::TensorI64);
-impl_try_from!(i32, Value::TensorI32);
-impl_try_from!(i16, Value::TensorI16);
-impl_try_from!(f64, Value::TensorF64);
-impl_try_from!(f32, Value::TensorF32);
-
-// This could be implemented using the below macro, but then we would
-// have to disable some lints.
-impl<'s, A> Inputs<'s> for (Vec<A>,)
-where
-    A: TryFromValue<'s> + OnnxTensorDtype,
-{
-    const VARIADIC_IS_HOMOGENEOUS: Option<bool> = Some(true);
-    const NUM_POSITIONAL: usize = 0;
-
-    fn try_from_values(values: &'s [Value]) -> Result<Self> {
-        let rest = values
-            .iter()
-            .map(|el| TryFromValue::try_from_value(el))
-            .collect::<Result<_, _>>()?;
-
-        Ok((rest,))
-    }
-
-    fn tensor_data_type(idx: usize) -> Option<ONNXTensorElementDataType> {
-        [A::dtype_id()][idx]
+        })
     }
 }
-
-macro_rules! impl_inputs {
-    ($n_min:literal, $is_variadic:literal, $($var_ty:ident)? | $($positional_ty:ident),*) => {
-        impl<'s, $($positional_ty,)* $($var_ty)*> Inputs<'s> for ($($positional_ty,)* $(Vec<$var_ty>,)*)
-        where
-            $($positional_ty: TryFromValue<'s> + OnnxTensorDtype,)*
-            $($var_ty: TryFromValue<'s> + OnnxTensorDtype,)*
-        {
-            const VARIADIC_IS_HOMOGENEOUS: Option<bool> = if $is_variadic {Some(true)} else { None };
-            const NUM_POSITIONAL: usize = $n_min;
-
-            fn try_from_values(values: &'s [Value]) -> Result<Self>
-            {
-                if $is_variadic {
-                    if values.len() < $n_min {
-                        bail!("expected at least {} inputs; found {}", $n_min, values.len())
-                    }
-                } else if values.len() != $n_min {
-                    bail!("expected {} inputs; found {}", $n_min, values.len())
-                }
-
-                let mut iter = values.iter();
-
-                Ok((
-                    $(<$positional_ty as TryFromValue>::try_from_value(iter.next().unwrap())?,)*
-                        $(iter.map(|el| TryFromValue::try_from_value(el)).collect::<Result<Vec<$var_ty>, _>>()?,)*
-                ))
-            }
-            fn tensor_data_type(idx: usize) -> Option<ONNXTensorElementDataType> {
-                [
-                    $($positional_ty::dtype_id(),)*
-                        $($var_ty::dtype_id())*
-                ][idx]
-            }
-        }
-    };
-}
-
-// // Positional-only implementations
-impl_inputs!(1, false, | A);
-impl_inputs!(2, false, | A, B);
-impl_inputs!(3, false, | A, B, C);
-impl_inputs!(4, false, | A, B, C, D);
-impl_inputs!(5, false, | A, B, C, D, E);
-impl_inputs!(6, false, | A, B, C, D, E, F);
-impl_inputs!(7, false, | A, B, C, D, E, F, G);
-impl_inputs!(8, false, | A, B, C, D, E, F, G, H);
-impl_inputs!(9, false, | A, B, C, D, E, F, G, H, I);
-impl_inputs!(10, false, | A, B, C, D, E, F, G, H, I, J);
-
-// // Variadic implementations; variadic input must be homogeneous, but may be empty
-impl_inputs!(1, true, Z | A);
-impl_inputs!(2, true, Z | A, B);
-impl_inputs!(3, true, Z | A, B, C);
-impl_inputs!(4, true, Z | A, B, C, D);
-impl_inputs!(5, true, Z | A, B, C, D, E);
-impl_inputs!(6, true, Z | A, B, C, D, E, F);
-impl_inputs!(7, true, Z | A, B, C, D, E, F, G);
-impl_inputs!(8, true, Z | A, B, C, D, E, F, G, H);
-impl_inputs!(9, true, Z | A, B, C, D, E, F, G, H, I);
-impl_inputs!(10, true, Z | A, B, C, D, E, F, G, H, I, J);
-
-impl<'s> OnnxTensorDtype for ArrayD<&'s str> {
-    fn dtype_id() -> Option<ONNXTensorElementDataType> {
-        Some(crate::bindings::ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_STRING)
-    }
-}
-
-macro_rules! impl_onnx_tensor_dtype {
-    ($ty:ty, $ident:ident) => {
-        impl<'s> OnnxTensorDtype for ArrayViewD<'s, $ty> {
-            fn dtype_id() -> Option<ONNXTensorElementDataType> {
-                Some(crate::bindings::$ident)
-            }
-        }
-    };
-}
-
-#[rustfmt::skip] impl_onnx_tensor_dtype!(f32, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT);
-#[rustfmt::skip] impl_onnx_tensor_dtype!(f64, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_DOUBLE);
-#[rustfmt::skip] impl_onnx_tensor_dtype!(bool, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_BOOL);
-#[rustfmt::skip] impl_onnx_tensor_dtype!(u8, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8);
-#[rustfmt::skip] impl_onnx_tensor_dtype!(u16, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT16);
-#[rustfmt::skip] impl_onnx_tensor_dtype!(u32, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT32);
-#[rustfmt::skip] impl_onnx_tensor_dtype!(u64, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT64);
-#[rustfmt::skip] impl_onnx_tensor_dtype!(i8, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8);
-#[rustfmt::skip] impl_onnx_tensor_dtype!(i16, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT16);
-#[rustfmt::skip] impl_onnx_tensor_dtype!(i32, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32);
-#[rustfmt::skip] impl_onnx_tensor_dtype!(i64, ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64);
