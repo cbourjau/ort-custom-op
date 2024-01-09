@@ -1,11 +1,11 @@
 use std::ffi::CString;
 
 use anyhow::{bail, Result};
-use ndarray::{Array, ArrayD, ArrayView, ArrayViewD, ArrayViewMut, ArrayViewMutD};
+use ndarray::{ArrayD, ArrayView, ArrayViewD, ArrayViewMut, ArrayViewMutD};
 
 use crate::bindings::*;
 use crate::error::ErrorStatus;
-use crate::value::{BufferMaybeOwned, Value, ValueBuffer};
+use crate::value::{BufferMaybeOwned, ValueBuffer};
 
 pub const API_VERSION: u32 = 16;
 
@@ -15,7 +15,7 @@ pub struct KernelInfo<'s> {
     info: &'s OrtKernelInfo,
 }
 
-pub(crate) enum ElementType {
+pub enum ElementType {
     Bool,
     F32,
     F64,
@@ -191,51 +191,6 @@ impl OrtValue {
         })?;
         Ok((buf, offsets))
     }
-
-    fn get_string_tensor_data(&self, api: &OrtApi) -> Result<ArrayD<String>> {
-        let fun_ptr = api.GetStringTensorContent.unwrap();
-
-        let info = self.get_tensor_type_and_shape(api)?;
-        let item_count = info.get_tensor_shape_element_count()?;
-        let non_null_bytes = self.get_string_tensor_data_length(api)?;
-
-        let mut buf = vec![0u8; non_null_bytes];
-        let mut offsets = vec![0usize; item_count];
-        unsafe {
-            fun_ptr(
-                self,
-                buf.as_mut_ptr() as *mut _,
-                non_null_bytes,
-                offsets.as_mut_ptr() as *mut _,
-                offsets.len(),
-            );
-        }
-
-        // Compute windows with the start and end of each
-        // substring and then scan the buffer.
-        let very_end = [non_null_bytes];
-        let starts = offsets.iter();
-        let ends = offsets.iter().chain(very_end.iter()).skip(1);
-        let windows = starts.zip(ends);
-        let strings: Vec<_> = windows
-            .scan(buf.as_slice(), |buf: &mut &[u8], (start, end)| {
-                let (this, rest) = buf.split_at(end - start);
-                *buf = rest;
-                // The following allocation could be avoided
-                String::from_utf8(this.to_vec()).ok()
-            })
-            .collect();
-
-        let shape: Vec<_> = info
-            .get_dimensions()?
-            .into_iter()
-            .map(|v| v as usize)
-            .collect();
-
-        Ok(Array::from(strings)
-            .into_shape(shape)
-            .expect("Shape information was incorrect."))
-    }
 }
 
 impl OrtKernelContext {
@@ -258,24 +213,6 @@ impl OrtKernelContext {
             }
         }
         Ok(inputs)
-    }
-
-    pub(crate) fn get_input_array<'s, T>(
-        &'s self,
-        api: &OrtApi,
-        index: usize,
-    ) -> Result<ArrayViewD<'s, T>> {
-        let value = self.get_input(api, index)?;
-        value.as_array(api)
-    }
-
-    pub(crate) fn get_input_array_string(
-        &self,
-        api: &OrtApi,
-        index: usize,
-    ) -> Result<ArrayD<String>> {
-        let value = self.get_input(api, index)?;
-        value.get_string_tensor_data(api)
     }
 
     pub(crate) fn fill_string_tensor(
@@ -493,7 +430,11 @@ impl<'s> TensorTypeAndShapeInfo<'s> {
     }
 
     pub(crate) fn get_element_type(&self) -> Result<ElementType> {
-        unimplemented!()
+        let mut ty_idx = 0;
+        self.api.status_to_result(unsafe {
+            self.api.GetTensorElementType.unwrap()(self.info, &mut ty_idx)
+        })?;
+        ElementType::try_from_ort_encoding(ty_idx)
     }
 }
 

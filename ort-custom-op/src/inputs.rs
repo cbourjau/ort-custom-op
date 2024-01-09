@@ -5,7 +5,7 @@ use crate::bindings::{
 };
 use crate::value::Value;
 use anyhow::{bail, Result};
-use ndarray::{Array, ArrayD, ArrayView, ArrayViewD};
+use ndarray::ArrayViewD;
 
 pub trait Inputs<'a>: Sized {
     /// Is the variadic part of the inputs (if any) homogeneous?
@@ -14,7 +14,7 @@ pub trait Inputs<'a>: Sized {
     const NUM_POSITIONAL: usize;
 
     /// Create inputs from `Value` objects
-    fn try_from_values(values: &'a [Value]) -> Result<Self>;
+    fn try_from_values(values: Vec<Value<'a>>) -> Result<Self>;
 
     /// Tensor data type of this input, or `None` if it is not a Tensor
     fn tensor_data_type(index: usize) -> Option<ONNXTensorElementDataType>;
@@ -34,7 +34,7 @@ pub trait Inputs<'a>: Sized {
 }
 
 trait TryFromValue<'s>: Sized {
-    fn try_from_value(value: &'s Value) -> Result<Self>;
+    fn try_from_value(value: Value<'s>) -> Result<Self>;
 }
 
 /// Get ONNX tensor data type id if possible
@@ -47,9 +47,9 @@ trait OnnxTensorDtype {
 /////////////////////
 
 impl<'s> TryFromValue<'s> for ArrayViewD<'s, &'s str> {
-    fn try_from_value(value: &'s Value) -> Result<Self> {
+    fn try_from_value(value: Value<'s>) -> Result<Self> {
         if let Value::TensorStr(arr) = value {
-            Ok(arr.view())
+            Ok(arr)
         } else {
             bail!("Expected 'String' tensor, found {:?}", value)
         }
@@ -59,9 +59,9 @@ impl<'s> TryFromValue<'s> for ArrayViewD<'s, &'s str> {
 macro_rules! impl_try_from {
     ($ty:ty, $variant:path) => {
         impl<'a> TryFromValue<'a> for ArrayViewD<'a, $ty> {
-            fn try_from_value(value: &'a Value) -> Result<Self> {
+            fn try_from_value(value: Value<'a>) -> Result<Self> {
                 if let $variant(arr) = value {
-                    Ok(arr.view())
+                    Ok(arr)
                 } else {
                     bail!("Expected '{}' tensor, found {:?}", stringify!($ty), value)
                 }
@@ -70,6 +70,7 @@ macro_rules! impl_try_from {
     };
 }
 
+impl_try_from!(bool, Value::TensorBool);
 impl_try_from!(u8, Value::TensorU8);
 impl_try_from!(u64, Value::TensorU64);
 impl_try_from!(u32, Value::TensorU32);
@@ -90,9 +91,9 @@ where
     const VARIADIC_IS_HOMOGENEOUS: Option<bool> = Some(true);
     const NUM_POSITIONAL: usize = 0;
 
-    fn try_from_values(values: &'s [Value]) -> Result<Self> {
+    fn try_from_values(values: Vec<Value<'s>>) -> Result<Self> {
         let rest = values
-            .iter()
+            .into_iter()
             .map(|el| TryFromValue::try_from_value(el))
             .collect::<Result<_, _>>()?;
 
@@ -114,7 +115,7 @@ macro_rules! impl_inputs {
             const VARIADIC_IS_HOMOGENEOUS: Option<bool> = if $is_variadic {Some(true)} else { None };
             const NUM_POSITIONAL: usize = $n_min;
 
-            fn try_from_values(values: &'s [Value]) -> Result<Self>
+            fn try_from_values(values: Vec<Value<'s>>) -> Result<Self>
             {
                 if $is_variadic {
                     if values.len() < $n_min {
@@ -124,7 +125,7 @@ macro_rules! impl_inputs {
                     bail!("expected {} inputs; found {}", $n_min, values.len())
                 }
 
-                let mut iter = values.iter();
+                let mut iter = values.into_iter();
 
                 Ok((
                     $(<$positional_ty as TryFromValue>::try_from_value(iter.next().unwrap())?,)*
@@ -165,7 +166,7 @@ impl_inputs!(8, true, Z | A, B, C, D, E, F, G, H);
 impl_inputs!(9, true, Z | A, B, C, D, E, F, G, H, I);
 impl_inputs!(10, true, Z | A, B, C, D, E, F, G, H, I, J);
 
-impl<'s> OnnxTensorDtype for ArrayD<&'s str> {
+impl<'s> OnnxTensorDtype for ArrayViewD<'s, &'s str> {
     fn dtype_id() -> Option<ONNXTensorElementDataType> {
         Some(crate::bindings::ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_STRING)
     }

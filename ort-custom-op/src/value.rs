@@ -57,7 +57,7 @@ pub(crate) enum BufferMaybeOwned<'s> {
 }
 
 /// Object owning the contiguous String buffer.
-struct StringBuffer {
+pub(crate) struct StringBuffer {
     buf: Vec<u8>,
     offsets: Vec<usize>,
 }

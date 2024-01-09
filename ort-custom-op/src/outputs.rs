@@ -84,7 +84,6 @@ macro_rules! impl_outputs {
                 $(<$param as Output>::OUTPUT_TYPE,)* $last_param::OUTPUT_TYPE
             ];
 
-
             fn write_to_ort(self, api: &OrtApi, ctx: &mut OrtKernelContext,) {
                 $(self.$idx.write_to_ort(api, ctx, $idx);)*
                 self.$last_idx.write_to_ort(api, ctx, $last_idx);
@@ -108,7 +107,7 @@ impl_outputs! {(0: A, 1: B, 2: C, 3: D, 4: E, 5: F, 6: G, 7: H, 8: I, 9: J )| 10
 trait LastOutput {
     const CHARACTERISTIC: OrtCustomOpInputOutputCharacteristic;
 
-    // TODO: Make this configurable?
+    // TODO: min arity should not be defined here but in the user-impl of CustomOp
     const VARIADIC_MIN_ARITY: usize = 1;
     const VARIADIC_IS_HOMOGENEOUS: bool;
     const OUTPUT_TYPE: ElementType;

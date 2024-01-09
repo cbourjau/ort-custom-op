@@ -9,7 +9,6 @@ use crate::bindings::{
 };
 pub use crate::inputs::Inputs;
 pub use crate::outputs::Outputs;
-use crate::value::ValueBuffer;
 
 /// Trait defining the behavior of a custom operator.
 pub trait CustomOp {
@@ -125,7 +124,9 @@ extern "C" fn get_input_type_count<T>(_op: *const OrtCustomOp) -> usize
 where
     T: CustomOp,
 {
-    <T::OpInputs<'_>>::NUM_POSITIONAL + T::VARIADIC_MIN_ARITY
+    // A possibly variadic input counts as a single input
+    let is_variadic = <T::OpInputs<'_>>::VARIADIC_IS_HOMOGENEOUS.is_some();
+    <T::OpInputs<'_>>::NUM_POSITIONAL + if is_variadic { 1 } else { 0 }
 }
 
 extern "C" fn get_output_type<T>(_op: *const OrtCustomOp, index: usize) -> ONNXTensorElementDataType
@@ -139,6 +140,7 @@ extern "C" fn get_output_type_count<T>(_op: *const OrtCustomOp) -> usize
 where
     T: CustomOp,
 {
+    // A possibly variadic output counts as a single output
     <T::OpOutputs as Outputs>::OUTPUT_TYPES.len()
 }
 
@@ -178,7 +180,7 @@ where
         let bufs: Vec<_> = bufs.iter().map(|el| el.normalize_buffers()).collect();
         let input_values: anyhow::Result<Vec<_>> = bufs.iter().map(|el| el.as_value()).collect();
         let input_values = bail_on_error!(api, input_values);
-        let tuple = bail_on_error!(api, Inputs::try_from_values(input_values.as_slice()));
+        let tuple = bail_on_error!(api, Inputs::try_from_values(input_values));
         bail_on_error!(api, user_kernel.kernel_compute(tuple))
     };
 
