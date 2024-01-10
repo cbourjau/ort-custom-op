@@ -7,6 +7,14 @@ use crate::value::Value;
 use anyhow::{bail, Result};
 use ndarray::ArrayViewD;
 
+/// Trait defining which types can be used as inputs when implementing [crate::prelude::CustomOp].
+///
+/// Currently, `Inputs` is implemented for tuples of up to ten
+/// elements of of [ArrayViewD] with element types `u8`,
+/// `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, `bool`, and
+/// `&str`. Furthermore, the last element of the tuple may be
+/// variadic by being a `Vec` of [ArrayViewD] objects with one of the
+/// previously stated element types.
 pub trait Inputs<'a>: Sized {
     /// Is the variadic part of the inputs (if any) homogeneous?
     const VARIADIC_IS_HOMOGENEOUS: Option<bool>;

@@ -12,28 +12,34 @@ pub use crate::outputs::Outputs;
 
 /// Trait defining the behavior of a custom operator.
 pub trait CustomOp {
+    /// Error type for the kernel creation
     type KernelCreateError;
+    /// Error type of the compute operation
     type ComputeError;
+    /// Name of the operator
     const NAME: &'static str;
-    /// Minimum number of variadic inputs
+    /// Minimum number of variadic inputs. Any non-zero value requires
+    /// that the last input is variadic.
     const VARIADIC_MIN_ARITY: usize = 0;
 
     type OpInputs<'s>: Inputs<'s>;
     type OpOutputs: Outputs;
 
+    /// Set up state later used in compute calls. Called once per session.
     fn kernel_create(info: &KernelInfo) -> Result<Self, Self::KernelCreateError>
     where
         Self: Sized;
+
     fn kernel_compute(
         &self,
         inputs: Self::OpInputs<'_>,
     ) -> Result<Self::OpOutputs, Self::ComputeError>;
 }
 
-/// Function to build static instances of `OrtCustomOp`.
+/// Function to build static instances of [`OrtCustomOp`].
 ///
-/// These static objects are registered using the
-/// `create_custom_op_domain` function.
+/// The produced static object can be registered using the
+/// [`crate::prelude::create_custom_op_domain`] function.
 pub const fn build<T>() -> OrtCustomOp
 where
     T: CustomOp,
