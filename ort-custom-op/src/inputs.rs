@@ -11,7 +11,7 @@ use ndarray::ArrayViewD;
 ///
 /// Currently, `Inputs` is implemented for tuples of up to ten
 /// elements of of [ArrayViewD] with element types `u8`,
-/// `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, `bool`, and
+/// `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, `f32`, `f64`, `bool`, and
 /// `&str`. Furthermore, the last element of the tuple may be
 /// variadic by being a `Vec` of [ArrayViewD] objects with one of the
 /// previously stated element types.
