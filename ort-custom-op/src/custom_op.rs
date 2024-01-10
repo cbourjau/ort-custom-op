@@ -232,7 +232,7 @@ where
 {
     i32::from(
         <T::OpInputs<'_>>::VARIADIC_IS_HOMOGENEOUS
-            .expect("'get_variadic_input_homogeneity' was for operator with fixed arity."),
+            .expect("'get_variadic_input_homogeneity' was called for operator with fixed arity."),
     )
 }
 
