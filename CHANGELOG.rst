@@ -7,6 +7,14 @@
 Changelog
 =========
 
+0.6.0 (unreleased)
+------------------
+
+**Breaking changes**
+
+- String input tensors are now passed as `ArrayViewD<'_, &str>` objects rather than `ArrayD<String>` objects.
+- The `ort_custom_ops::prelude::KernelInfo.get_attribute_tensors` function now returns owned array objects for numerical data. String tensors are currently not supported.
+
 0.5.1 (2023-11-04)
 ------------------
 

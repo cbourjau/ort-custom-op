@@ -22,7 +22,11 @@ impl CustomOp for AttrShowcase {
 
     const NAME: &'static str = "AttrShowcase";
 
-    type OpInputs<'s> = (ArrayViewD<'s, f32>, ArrayViewD<'s, i64>, ArrayD<String>);
+    type OpInputs<'s> = (
+        ArrayViewD<'s, f32>,
+        ArrayViewD<'s, i64>,
+        ArrayViewD<'s, &'s str>,
+    );
     type OpOutputs = (ArrayD<f32>, ArrayD<i64>, ArrayD<String>);
 
     fn kernel_create(info: &KernelInfo) -> Result<Self, Self::KernelCreateError> {
@@ -30,7 +34,7 @@ impl CustomOp for AttrShowcase {
             float_attr: info.get_attribute_f32("float_attr")?,
             int_attr: info.get_attribute_i64("int_attr")?,
             string_attr: info.get_attribute_string("string_attr")?,
-            _u8_tensor: info.get_attribute_tensor("u8_tensor")?.to_owned(),
+            _u8_tensor: info.get_attribute_tensor("u8_tensor")?,
             _floats_attr: info.get_attribute_f32s("floats_attr")?,
             _ints_attr: info.get_attribute_i64s("ints_attr")?,
         })
@@ -42,7 +46,7 @@ impl CustomOp for AttrShowcase {
     ) -> Result<Self::OpOutputs, Self::ComputeError> {
         let a = &a + self.float_attr;
         let b = &b + self.int_attr;
-        let c = c.mapv_into(|v| v + " + " + &self.string_attr);
+        let c = c.mapv(|v| v.to_string() + " + " + &self.string_attr);
         Ok((a, b, c))
     }
 }

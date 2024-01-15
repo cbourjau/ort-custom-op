@@ -1,10 +1,12 @@
 use std::ffi::CString;
 
 use anyhow::{bail, Result};
-use ndarray::{Array, ArrayD, ArrayView, ArrayViewD, ArrayViewMut, ArrayViewMutD};
+use ndarray::{ArrayD, ArrayViewD, ArrayViewMut, ArrayViewMutD};
 
 use crate::bindings::*;
 use crate::error::ErrorStatus;
+use crate::inputs::TryFromValue;
+use crate::value::{BufferMaybeOwned, ValueBuffer};
 
 pub const API_VERSION: u32 = 16;
 
@@ -18,6 +20,8 @@ pub enum ElementType {
     Bool,
     F32,
     F64,
+    I8,
+    I16,
     I32,
     I64,
     U8,
@@ -66,7 +70,7 @@ pub fn create_custom_op_domain(
 /// Explicit struct around OrtTypeAndShapeInfo pointer since we are
 /// responsible for properly dropping it.
 #[derive(Debug)]
-struct TensorTypeAndShapeInfo<'s> {
+pub(crate) struct TensorTypeAndShapeInfo<'s> {
     api: &'s OrtApi,
     // must be mut so that we can later drop it
     info: &'s mut OrtTensorTypeAndShapeInfo,
@@ -91,22 +95,33 @@ impl OrtValue {
             api.status_to_result(fun(self, &mut num))?;
             num
         };
+
         Ok(num)
     }
 
-    pub fn as_array<T>(&mut self, api: &OrtApi) -> Result<ArrayViewD<T>> {
-        let shape = self.shape(api)?;
-        let data = self.get_data_mut(api)?;
-        Ok(ArrayView::from(data as &_).into_shape(shape.as_slice())?)
+    /// Load tensor buffer data. It is the callers responsibility that
+    /// the `dtype` matches the loaded data.
+    unsafe fn load_tensor_buffer<'s>(
+        &'s mut self,
+        api: &OrtApi,
+        dtype: ElementType,
+        shape: Vec<usize>,
+    ) -> Result<ValueBuffer<BufferMaybeOwned<'s>, Vec<usize>>> {
+        Ok(ValueBuffer::Tensor {
+            buf: BufferMaybeOwned::load_from_ort(api, self, &dtype)?,
+            shape,
+        })
     }
 
-    pub fn as_array_mut<T>(&mut self, api: &OrtApi) -> Result<ArrayViewMutD<T>> {
+    /// Get a mutable view for this `Value`. The type is not validated.
+    pub unsafe fn as_array_mut<T>(&mut self, api: &OrtApi) -> Result<ArrayViewMutD<T>> {
         let shape = self.shape(api)?;
         let data = self.get_data_mut(api)?;
         Ok(ArrayViewMut::from(data).into_shape(shape.as_slice())?)
     }
 
-    fn get_data_mut<'s, T>(&'s mut self, api: &OrtApi) -> Result<&'s mut [T]> {
+    /// Get mutable slice for this Value. This function does not validate the type.
+    pub(crate) unsafe fn get_data_mut<'s, T>(&'s mut self, api: &OrtApi) -> Result<&'s mut [T]> {
         if self.onnx_type(api)? != ONNXType_ONNX_TYPE_TENSOR {
             bail!("OrtValue is not a tensor")
         }
@@ -149,7 +164,12 @@ impl OrtValue {
         Ok(non_null_bytes)
     }
 
-    fn get_string_tensor_data(&self, api: &OrtApi) -> Result<ArrayD<String>> {
+    /// Get string data as a single buffer along with the offsets to
+    /// the beginning of each element.
+    pub(crate) fn get_string_tensor_single_buf(
+        &self,
+        api: &OrtApi,
+    ) -> Result<(Vec<u8>, Vec<usize>)> {
         let fun_ptr = api.GetStringTensorContent.unwrap();
 
         let info = self.get_tensor_type_and_shape(api)?;
@@ -158,60 +178,44 @@ impl OrtValue {
 
         let mut buf = vec![0u8; non_null_bytes];
         let mut offsets = vec![0usize; item_count];
-        unsafe {
+        api.status_to_result(unsafe {
             fun_ptr(
                 self,
                 buf.as_mut_ptr() as *mut _,
                 non_null_bytes,
                 offsets.as_mut_ptr() as *mut _,
                 offsets.len(),
-            );
-        }
-
-        // Compute windows with the start and end of each
-        // substring and then scan the buffer.
-        let very_end = [non_null_bytes];
-        let starts = offsets.iter();
-        let ends = offsets.iter().chain(very_end.iter()).skip(1);
-        let windows = starts.zip(ends);
-        let strings: Vec<_> = windows
-            .scan(buf.as_slice(), |buf: &mut &[u8], (start, end)| {
-                let (this, rest) = buf.split_at(end - start);
-                *buf = rest;
-                // The following allocation could be avoided
-                String::from_utf8(this.to_vec()).ok()
-            })
-            .collect();
-
-        let shape: Vec<_> = info
-            .get_dimensions()?
-            .into_iter()
-            .map(|v| v as usize)
-            .collect();
-
-        Ok(Array::from(strings)
-            .into_shape(shape)
-            .expect("Shape information was incorrect."))
+            )
+        })?;
+        Ok((buf, offsets))
     }
 }
 
 impl OrtKernelContext {
-    pub(crate) fn get_input_array<'s, T>(
-        &self,
+    #[allow(non_upper_case_globals)]
+    pub(crate) fn get_input_values<'s>(
+        &'s self,
         api: &OrtApi,
-        index: usize,
-    ) -> Result<ArrayViewD<'s, T>> {
-        let value = self.get_input(api, index)?;
-        value.as_array(api)
-    }
-
-    pub(crate) fn get_input_array_string(
-        &self,
-        api: &OrtApi,
-        index: usize,
-    ) -> Result<ArrayD<String>> {
-        let value = self.get_input(api, index)?;
-        value.get_string_tensor_data(api)
+    ) -> Result<Vec<ValueBuffer<BufferMaybeOwned<'s>, Vec<usize>>>> {
+        let n_inputs = self.get_input_count(api)?;
+        let mut inputs = Vec::with_capacity(n_inputs);
+        for idx in 0..n_inputs {
+            let value = self.get_input(api, idx)?;
+            match value.onnx_type(api)? {
+                ONNXType_ONNX_TYPE_TENSOR => {
+                    let (dtype, shape) = {
+                        let info = value.get_tensor_type_and_shape(api)?;
+                        (info.get_element_type()?, info.shape()?)
+                    };
+                    // Unsafe invariant: dtype must match value
+                    unsafe {
+                        inputs.push(value.load_tensor_buffer(api, dtype, shape)?);
+                    }
+                }
+                _ => bail!("Only tensor inputs are supported."),
+            }
+        }
+        Ok(inputs)
     }
 
     pub(crate) fn fill_string_tensor(
@@ -262,7 +266,7 @@ impl OrtKernelContext {
     }
 
     /// Get `OrtValue` for input with index `idx`.
-    fn get_input<'s>(&self, api: &OrtApi, idx: usize) -> Result<&'s mut OrtValue> {
+    fn get_input<'s>(&'s self, api: &OrtApi, idx: usize) -> Result<&'s mut OrtValue> {
         let fun = api.KernelContext_GetInput.unwrap();
 
         let mut value: *const OrtValue = std::ptr::null();
@@ -379,7 +383,13 @@ impl<'info> KernelInfo<'info> {
         Ok(buf)
     }
 
-    pub fn get_attribute_tensor<'s, T>(&'s self, name: &str) -> Result<ArrayViewD<'s, T>> {
+    /// Get array from attribute Tensor. String tensors are not yet supported.
+    pub fn get_attribute_tensor<T>(&self, name: &str) -> Result<ArrayD<T>>
+    where
+        T: Copy,
+        for<'s> ArrayViewD<'s, T>: TryFromValue<'s>,
+    {
+        // Todo: What is going on with the allocator here?
         let get_alloc = self.api.GetAllocatorWithDefaultOptions.unwrap();
         let mut alloc = std::ptr::null_mut();
 
@@ -395,13 +405,30 @@ impl<'info> KernelInfo<'info> {
                 &mut *value
             }
         };
+        let (dtype, shape) = {
+            let info = value.get_tensor_type_and_shape(self.api)?;
+            (info.get_element_type()?, info.shape()?)
+        };
 
-        value.as_array(self.api)
+        // Unsafe invariant: dtype must match value
+        let buf = unsafe { value.load_tensor_buffer(self.api, dtype, shape)? };
+        let buf = buf.normalize_buffers();
+
+        let view = <ArrayViewD<'_, T>>::try_from_value(buf.as_value()?)?;
+        Ok(view.to_owned())
     }
 }
 
 impl<'s> TensorTypeAndShapeInfo<'s> {
-    fn get_dimensions(&self) -> Result<Vec<i64>> {
+    pub fn shape(&self) -> Result<Vec<usize>> {
+        Ok(self
+            .get_dimensions()?
+            .into_iter()
+            .map(|el| el as usize)
+            .collect())
+    }
+
+    pub(crate) fn get_dimensions(&self) -> Result<Vec<i64>> {
         let mut n_dim = 0;
         unsafe { self.api.GetDimensionsCount.unwrap()(self.info, &mut n_dim) };
         let mut out = Vec::with_capacity(n_dim);
@@ -420,9 +447,12 @@ impl<'s> TensorTypeAndShapeInfo<'s> {
         Ok(element_count)
     }
 
-    #[allow(unused)]
-    fn get_tensor_element_type(&self) -> Result<ONNXTensorElementDataType> {
-        unimplemented!()
+    pub(crate) fn get_element_type(&self) -> Result<ElementType> {
+        let mut ty_idx = 0;
+        self.api.status_to_result(unsafe {
+            self.api.GetTensorElementType.unwrap()(self.info, &mut ty_idx)
+        })?;
+        ElementType::try_from_ort_encoding(ty_idx)
     }
 }
 
@@ -440,6 +470,8 @@ impl ElementType {
             Self::F32 => ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
             Self::F64 => ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_DOUBLE,
 
+            Self::I8 => ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8,
+            Self::I16 => ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT16,
             Self::I32 => ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32,
             Self::I64 => ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64,
 
@@ -460,6 +492,8 @@ impl ElementType {
             ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT => Self::F32,
             ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_DOUBLE => Self::F64,
 
+            ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT8 => Self::I8,
+            ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT16 => Self::I16,
             ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32 => Self::I32,
             ONNXTensorElementDataType_ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64 => Self::I64,
 

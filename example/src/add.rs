@@ -9,10 +9,10 @@ pub struct CustomAdd<T> {
     ty: PhantomData<T>,
 }
 
-impl<'add, T> CustomOp for CustomAdd<T>
+impl<T> CustomOp for CustomAdd<T>
 where
     T: 'static + Add<T, Output = T> + Clone,
-    for<'s> (ArrayViewD<'s, T>, ArrayViewD<'s, T>): Inputs<'s>,
+    for<'a> (ArrayViewD<'a, T>, ArrayViewD<'a, T>): Inputs<'a>,
     (ArrayD<T>,): Outputs,
 {
     type KernelCreateError = Infallible;

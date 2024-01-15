@@ -2,7 +2,7 @@ use std::convert::Infallible;
 
 use anyhow::Error;
 use chrono::NaiveDateTime;
-use ndarray::ArrayD;
+use ndarray::{ArrayD, ArrayViewD};
 
 use ort_custom_op::prelude::*;
 
@@ -18,7 +18,7 @@ impl CustomOp for ParseDateTime {
     type ComputeError = Infallible;
     const NAME: &'static str = "ParseDateTime";
 
-    type OpInputs<'s> = (ArrayD<String>,);
+    type OpInputs<'s> = (ArrayViewD<'s, &'s str>,);
     type OpOutputs = (ArrayD<f64>,);
 
     fn kernel_create(info: &KernelInfo) -> Result<Self, Self::KernelCreateError> {
@@ -28,10 +28,10 @@ impl CustomOp for ParseDateTime {
 
     fn kernel_compute<'s>(
         &self,
-        (array_in,): (ArrayD<String>,),
+        (array_in,): (ArrayViewD<'s, &'s str>,),
     ) -> Result<Self::OpOutputs, Self::ComputeError> {
         let out = array_in.mapv(|s| {
-            NaiveDateTime::parse_from_str(s.as_str(), self.fmt.as_str())
+            NaiveDateTime::parse_from_str(s, &self.fmt)
                 .map(|dt| dt.timestamp() as f64)
                 .unwrap_or_else(|_| f64::NAN)
         });
