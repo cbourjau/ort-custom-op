@@ -1,3 +1,4 @@
-onnx
+# onnxruntime 1.17 does not yet support IR version 10, which is hard coded into onnx.helper.make_model
+onnx<=1.15
 onnxruntime
 pytest
