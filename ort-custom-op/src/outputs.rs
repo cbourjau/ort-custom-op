@@ -66,6 +66,7 @@ impl_output_non_string!(u32, U32);
 impl_output_non_string!(u64, U64);
 impl_output_non_string!(u8, U8);
 impl_output_non_string!(i8, I8);
+impl_output_non_string!(i16, I16);
 
 macro_rules! impl_outputs {
     (($($idx:tt: $param:tt),*) | $last_idx:tt: $last_param:tt ) => {
