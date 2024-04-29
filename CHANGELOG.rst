@@ -12,7 +12,7 @@ Changelog
 
 **New feature**
 
-- Add support for i8 output tensors.
+- Add support for output tensors with `i8` and `i16` element types.
 
 
 0.6.0 (2023-01-06)
