@@ -7,6 +7,14 @@
 Changelog
 =========
 
+0.7.0 (unreleased)
+------------------
+
+**New feature**
+
+- Add support for i8 output tensors.
+
+
 0.6.0 (2023-01-06)
 ------------------
 
