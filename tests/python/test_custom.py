@@ -3,7 +3,7 @@ from platform import platform
 import pytest
 import re
 
-from onnx import helper, TensorProto
+from onnx import IR_VERSION_2023_5_5, helper, TensorProto
 from onnx import numpy_helper
 import numpy as np
 import onnxruntime as onnxrt
@@ -40,7 +40,7 @@ def custom_add_model(onnx_tensor_type):
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)], ir_version=IR_VERSION_2023_5_5)
 
 
 @pytest.fixture
@@ -70,7 +70,7 @@ def parse_datetime_model():
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)], ir_version=IR_VERSION_2023_5_5)
 
 
 @pytest.fixture
@@ -118,7 +118,7 @@ def attr_showcase_model():
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)], ir_version=IR_VERSION_2023_5_5)
 
 
 @pytest.fixture
@@ -158,7 +158,7 @@ def attr_showcase_model_missing_attributes():
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)], ir_version=IR_VERSION_2023_5_5)
 
 
 @pytest.fixture
@@ -188,8 +188,7 @@ def custom_sum_model():
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
-
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)], ir_version=IR_VERSION_2023_5_5)
 
 @pytest.fixture
 def variadic_identity_model():
@@ -220,7 +219,7 @@ def variadic_identity_model():
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)], ir_version=IR_VERSION_2023_5_5)
 
 
 def fallible_model(with_attr: bool):
@@ -249,7 +248,7 @@ def fallible_model(with_attr: bool):
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)])
+    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)], ir_version=IR_VERSION_2023_5_5)
 
 
 @pytest.fixture
