@@ -70,7 +70,7 @@ VENV=.venv
 if test ! -d $VENV; then
     python -m venv $VENV
     source ./$VENV/bin/activate
-    pip install onnx onnxruntime pytest
+    pip install onnx==1.15 onnxruntime pytest
 else
     source ./$VENV/bin/activate
 fi
