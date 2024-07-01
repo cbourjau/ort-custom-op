@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        OS: ["ubuntu-latest", "macos-latest"]
+        OS: ["ubuntu-latest", "macos-latest", "windows-latest"]
     runs-on: ${{ matrix.OS }}
     env:
       RUST_BACKTRACE: True
@@ -26,6 +26,5 @@ jobs:
         run: cargo build --all
       - name: Run tests
         run: cargo test
-      - name: Run Python tests
-        shell: bash -el {0}
-        run: pytest tests/python
+      - name: Run unittests
+        uses: quantco/pytest-action@v2
