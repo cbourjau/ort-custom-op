@@ -1,4 +1,4 @@
-name: Nix-based tests
+name: CI
 
 on: push
 
@@ -8,7 +8,6 @@ env:
 jobs:
   build:
     strategy:
-      fail-fast: true
       matrix:
         OS: ["ubuntu-latest", "macos-latest", "windows-latest"]
     runs-on: ${{ matrix.OS }}
