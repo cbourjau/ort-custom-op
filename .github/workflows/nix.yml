@@ -7,24 +7,28 @@ env:
 
 jobs:
   build:
-
-    runs-on: ubuntu-latest
-
+    strategy:
+      fail-fast: true
+      matrix:
+        OS: ["ubuntu-latest"]
+        PYTHON_VERSION: ['3.8', '3.9', '3.10', '3.11']
+        include:
+          - OS: macos-latest-xlarge
+            PYTHON_VERSION: "3.11"
+    runs-on: ${{ matrix.OS }}
+    env:
+      RUST_BACKTRACE: True
     steps:
-      - uses: actions/checkout@v3
-
-      - name: git checkout
-        uses: actions/checkout@v3
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@main
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+      - uses: mamba-org/setup-micromamba@v1 
+        with:
+          environment-file: environment.yml
       - name: Run tests
-        run: |
-          nix develop --command \
-          cargo test
+        run: cargo test
       - name: Build
-        run: |
-          nix develop --command \
-          cargo build --all
+        run: cargo build --all
       - name: Run Python tests
-        run: |
-          nix develop --command pytest tests/python
+        run: pytest tests/python
