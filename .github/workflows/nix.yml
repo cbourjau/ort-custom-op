@@ -13,7 +13,7 @@ jobs:
         OS: ["ubuntu-latest"]
         PYTHON_VERSION: ['3.8', '3.9', '3.10', '3.11']
         include:
-          - OS: macos-latest-xlarge
+          - OS: macos-latest
             PYTHON_VERSION: "3.11"
     runs-on: ${{ matrix.OS }}
     env:
