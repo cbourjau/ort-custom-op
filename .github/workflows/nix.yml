@@ -13,7 +13,6 @@ jobs:
         os:
           - ubuntu-latest
           - macos-latest
-          - ubuntu-latest-arm-2core
 
     steps:
       - uses: actions/checkout@v3
