@@ -31,3 +31,22 @@ jobs:
         run: cargo test
       - name: Run unittests
         uses: quantco/pytest-action@v2
+
+  cross_build:
+    runs-on: "ubuntu-latest"
+    env:
+      RUST_BACKTRACE: True
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+      - uses: mamba-org/setup-micromamba@v1 
+        with:
+          environment-file: environment.yml
+          cache-environment: true
+      - name: Add target
+        run: rustup target add aarch64-unknown-linux-gnu
+      - name: Build
+        run: cargo build --all --target aarch64-unknown-linux-gnu
+
