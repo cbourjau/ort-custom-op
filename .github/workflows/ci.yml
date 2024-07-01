@@ -36,6 +36,7 @@ jobs:
     runs-on: "ubuntu-latest"
     env:
       RUST_BACKTRACE: True
+      CARGO_TARGET_gcc-aarch64-linux-gnu_LINKER: gcc_linux-aarch64
     steps:
       - name: Checkout branch
         uses: actions/checkout@v4
@@ -45,6 +46,8 @@ jobs:
         with:
           environment-file: environment.yml
           cache-environment: true
+          create-args: >-
+            gcc_linux-aarch64
       - name: Add target
         run: rustup target add aarch64-unknown-linux-gnu
       - name: Build
