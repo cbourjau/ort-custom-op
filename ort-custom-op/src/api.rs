@@ -1,4 +1,4 @@
-use std::ffi::CString;
+use std::ffi::{c_char, CString};
 
 use anyhow::{bail, Result};
 use ndarray::{ArrayD, ArrayViewD, ArrayViewMut, ArrayViewMutD};
@@ -326,7 +326,7 @@ impl<'info> KernelInfo<'info> {
             self.api.status_to_result(fun(
                 self.info,
                 name.as_ptr(),
-                buf.as_mut_ptr() as *mut i8,
+                buf.as_mut_ptr() as *mut c_char,
                 &mut size,
             ))?
         };
