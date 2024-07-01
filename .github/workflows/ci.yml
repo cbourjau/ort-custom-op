@@ -21,6 +21,10 @@ jobs:
       - uses: mamba-org/setup-micromamba@v1 
         with:
           environment-file: environment.yml
+          cache-environment: true
+          create-args: >-
+            pytest-md
+            pytest-emoji
       - name: Build
         run: cargo build --all
       - name: Run tests
