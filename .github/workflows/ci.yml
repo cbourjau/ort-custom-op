@@ -36,7 +36,7 @@ jobs:
     runs-on: "ubuntu-latest"
     env:
       RUST_BACKTRACE: True
-      CARGO_TARGET_gcc-aarch64-linux-gnu_LINKER: gcc_linux-aarch64
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: gcc_linux-aarch64
     steps:
       - name: Checkout branch
         uses: actions/checkout@v4
