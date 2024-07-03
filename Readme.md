@@ -1,19 +1,76 @@
-Proof of concept for writing custom operators for onnxruntime
-=============================================================
+# ort-custom-op
 
-Custom operators can be made available to the onnxruntime by creating a shared library with a standardized API.
-Directly interfacing with the API and types exposed by onnxruntime is quite cumbersome and error prone, though.
-This project provides abstractions that make this interfacing much easier and safe.
+The `ort-custom-op` crate provides a framework to safely write custom operators for the `onnxruntime`. 
 
-Each custom operator is an individual type which implements the `CustomOp` trait. Types which implement that trait can be `build` into static objects which are in turn exposed to the onnxruntime.
 
-The `example` crate demonstrates how to implement various custom operators.
-These operators are loaded and used in the Python test cases in `tests/python`.
-Building and running these tests requires `cargo` (i.e. the standard rust tool chain), `onnxruntime` and `pytest`.
+## Quick start
 
-Execute the following at the root of this repository to build the shared
-library and to run the python-defined tests:
+The `example` crate in the likewise named directory provides a comprehensive end-to-end example of the functionality of the `ort-custom-op` crate. Below follows a brief quick start tutorial.
 
-```python
-cargo b && pytest tests/python -s
+Custom operators may be made available in an `onnxruntime` session by providing a shared library that exposes a single function named `RegisterCustomOps`. The task of this function is to register custom operators in the form of function tables; namely `OrtCustomOp` objects. This crate provides tooling to easily create `OrtCustomOp` objects from anything that implements the `CustomOp` trait via the `ort_custom_op::build` function.
+
+The following showcases how one may define a custom operator that adds a constant to each element of an input tensor of data type `i64`.
+
+The containing crate must be compiled as a `cdylib` crate.
+
+
+```rust
+use std::convert::Infallible;
+
+use anyhow::Error;
+use ndarray::{ArrayD, ArrayViewD};
+
+use ort_custom_op::prelude::*;
+
+/// A custom operator that adds a constant to every input of an i64 input
+/// tensor.
+pub struct AddConstant {
+    /// State associated with this operator. Derived from the
+    /// respective node's attributes.
+    constant: i64,
+}
+
+impl CustomOp for AddConstant {
+    /// Possible error raised when setting up the kernel during
+    /// session creation.
+    type KernelCreateError = Error;
+    /// Possible error raised during compute call.
+    type ComputeError = Infallible;
+
+    /// Name of the operator within its domain
+    const NAME: &'static str = "AddConstant";
+
+    /// Input array(s) (as a tuple)
+    type OpInputs<'s> = (ArrayViewD<'s, i64>,);
+
+    /// Output array(s) (as a tuple)
+    type OpOutputs = (ArrayD<i64>,);
+
+    /// Function called once per node during session creation.
+    fn kernel_create(info: &KernelInfo) -> Result<Self, Self::KernelCreateError> {
+        // Read and parse attribute from kernel info object.
+        let constant = info.get_attribute_i64("constant")?;
+        Ok(AddConstant { constant })
+    }
+
+    /// Function called during inference.
+    fn kernel_compute(
+        &self,
+        (array,): Self::OpInputs<'_>,
+    ) -> Result<Self::OpOutputs, Self::ComputeError> {
+        Ok((&array + self.constant,))
+    }
+}
+
+// Create a constant function table as expected by onnxruntime
+const ADD_CONSTANT_OP: OrtCustomOp = build::<AddConstant>();
+
+/// Public function which onnxruntime expects to be in the shared library
+#[no_mangle]
+pub extern "C" fn RegisterCustomOps(
+    options: &mut OrtSessionOptions,
+    api_base: &mut OrtApiBase,
+) -> *mut OrtStatus {
+    create_custom_op_domain(options, api_base, "my.domain", &[&ADD_CONSTANT_OP])
+}
 ```

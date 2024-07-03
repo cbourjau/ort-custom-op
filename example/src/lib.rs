@@ -1,6 +1,7 @@
 use ort_custom_op::prelude::*;
 
 mod add;
+mod add_constant;
 mod attr_showcase;
 mod datetime;
 mod fallible_op;
