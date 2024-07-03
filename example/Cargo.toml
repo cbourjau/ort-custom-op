@@ -12,4 +12,4 @@ crate-type = ["cdylib"]
 anyhow = "1.0.71"
 chrono = "0.4.23"
 ndarray = "0.15.6"
-ort_custom_op = {path="../ort-custom-op"}
+ort_custom_op = "0.7"
