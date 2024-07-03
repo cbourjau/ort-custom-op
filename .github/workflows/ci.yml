@@ -32,24 +32,3 @@ jobs:
       - name: Run unittests
         uses: quantco/pytest-action@v2
 
-  build-aarch64-linux:
-    runs-on: "ubuntu-latest"
-    env:
-      RUST_BACKTRACE: True
-      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: gcc_linux-aarch64
-    steps:
-      - name: Checkout branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-      - uses: mamba-org/setup-micromamba@v1 
-        with:
-          environment-file: environment.yml
-          cache-environment: true
-          create-args: >-
-            gcc_linux-aarch64
-      - name: Add target
-        run: rustup target add aarch64-unknown-linux-gnu
-      - name: Build
-        run: cargo build --all --target aarch64-unknown-linux-gnu
-
