@@ -8,6 +8,9 @@ mod fallible_op;
 mod sum;
 mod variadic_identity;
 
+// Create a constant function table as expected by onnxruntime
+const ADD_CONSTANT: OrtCustomOp = build::<add_constant::AddConstant>();
+
 /// Static objects defining the custom operators
 const OP_ATTR_SHOWCASE: OrtCustomOp = build::<attr_showcase::AttrShowcase>();
 const OP_CUSTOM_ADD_F32: OrtCustomOp = build::<add::CustomAdd<f32>>();
@@ -35,6 +38,7 @@ pub extern "C" fn RegisterCustomOps(
             &OP_PARSE_DATETIME,
             &OP_VARIADIC_IDENTITY,
             &OP_FALLIBLE,
+            &ADD_CONSTANT,
         ],
     )
 }
