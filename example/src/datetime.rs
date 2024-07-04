@@ -32,7 +32,7 @@ impl CustomOp for ParseDateTime {
     ) -> Result<Self::OpOutputs, Self::ComputeError> {
         let out = array_in.mapv(|s| {
             NaiveDateTime::parse_from_str(s, &self.fmt)
-                .map(|dt| dt.timestamp() as f64)
+                .map(|dt| dt.and_utc().timestamp() as f64)
                 .unwrap_or_else(|_| f64::NAN)
         });
         Ok((out,))
