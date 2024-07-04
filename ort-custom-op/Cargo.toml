@@ -10,5 +10,5 @@ repository = "https://github.com/cbourjau/ort-custom-op"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1"
+anyhow = "1.0"
 ndarray = "0.15"
