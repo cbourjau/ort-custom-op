@@ -7,6 +7,14 @@
 Changelog
 =========
 
+0.7.1 (2024-07-04)
+------------------
+
+**Bug fix**
+
+- Casting of API status pointer is now done platform-agnostically in ``get_attribute_string``.
+
+
 0.7.0 (2024-04-29)
 ------------------
 
