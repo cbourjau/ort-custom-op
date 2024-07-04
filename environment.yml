@@ -1,0 +1,15 @@
+name: ort_custom_op
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python>=3.10
+  - numpy
+  - numpydoc
+  - onnx
+  - onnxruntime>=1.16
+  - pandas
+  - pre-commit
+  - pytest
+  - setuptools_scm
+  - rust

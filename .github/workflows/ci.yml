@@ -1,0 +1,34 @@
+name: CI
+
+on: push
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        OS: ["ubuntu-latest", "macos-latest"]
+    runs-on: ${{ matrix.OS }}
+    env:
+      RUST_BACKTRACE: True
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+      - uses: mamba-org/setup-micromamba@v1 
+        with:
+          environment-file: environment.yml
+          cache-environment: true
+          create-args: >-
+            pytest-md
+            pytest-emoji
+      - name: Build
+        run: cargo build --all
+      - name: Run tests
+        run: cargo test
+      - name: Run unittests
+        uses: quantco/pytest-action@v2
+
