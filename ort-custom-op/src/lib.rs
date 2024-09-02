@@ -1,3 +1,4 @@
+#![doc = include_str!("../../README.md")]
 mod api;
 mod bindings;
 mod custom_op;

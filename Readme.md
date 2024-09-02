@@ -5,9 +5,12 @@ The `ort-custom-op` crate provides a framework to safely write custom operators 
 
 ## Quick start
 
-The `example` crate in the likewise named directory provides a comprehensive end-to-end example of the functionality of the `ort-custom-op` crate. Below follows a brief quick start tutorial.
+The [`example`](https://github.com/cbourjau/ort-custom-op/tree/master/example) crate in the likewise named directory provides a comprehensive end-to-end example of the functionality of the `ort-custom-op` crate.
+Below follows a brief introduction.
 
-Custom operators may be made available in an `onnxruntime` session by providing a shared library that exposes a single function named `RegisterCustomOps`. The task of this function is to register custom operators in the form of function tables; namely `OrtCustomOp` objects. This crate provides tooling to easily create `OrtCustomOp` objects from anything that implements the `CustomOp` trait via the `ort_custom_op::build` function.
+Custom operators may be made available to an `onnxruntime` session by providing a shared library that exports a function named `RegisterCustomOps` ([docs](https://onnxruntime.ai/docs/reference/operators/add-custom-op.html#create-a-library-of-custom-operators)).
+The task of this function is to register custom operators in the form of function tables; namely `OrtCustomOp` objects.
+This crate provides tooling to easily create `OrtCustomOp` objects from anything that implements the [`CustomOp`](https://docs.rs/ort_custom_op/latest/ort_custom_op/prelude/trait.CustomOp.html) trait via the `ort_custom_op::build` function.
 
 The following showcases how one may define a custom operator that adds a constant to each element of an input tensor of data type `i64`.
 
