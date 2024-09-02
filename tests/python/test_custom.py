@@ -370,3 +370,28 @@ def test_fail_compute(shared_lib):
 
     # Don't fail depending on input
     sess.run(None, {"fail": np.array(False)})
+
+
+def test_zero_size_input_numeric(shared_lib, variadic_identity_model):
+    sess = setup_session(shared_lib, variadic_identity_model)
+    # Run with input data
+    input_feed = {
+        "A": np.array([], np.float32),
+        "B": np.array([], np.float32),
+    }
+    c, d = sess.run(None, input_feed)
+    a, b = input_feed.values()
+    np.testing.assert_equal(a, c)
+    np.testing.assert_equal(b, d)
+
+def test_zero_size_input_strings(shared_lib, parse_datetime_model):
+    sess = setup_session(shared_lib, parse_datetime_model)
+    # Run with input data
+    input_feed = {
+        sess.get_inputs()[0]
+        .name: np.array([], dtype=str).astype(np.str_),
+    }
+    output_name = sess.get_outputs()[0].name
+    res = sess.run([output_name], input_feed)
+    output_expected = np.array([])
+    np.testing.assert_equal(output_expected, res[0])

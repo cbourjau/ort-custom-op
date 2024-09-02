@@ -7,6 +7,14 @@
 Changelog
 =========
 
+0.7.2 (unreleased)
+------------------
+
+**Bug fix**
+
+- Fix crash when custom operators received input with a zero-sized dimension.
+
+
 0.7.1 (2024-07-04)
 ------------------
 
