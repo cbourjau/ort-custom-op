@@ -129,7 +129,10 @@ impl OrtValue {
             let info = self.get_tensor_type_and_shape(api)?;
             info.get_tensor_shape_element_count()?
         };
-
+        if element_count == 0 {
+            // Zero-sized tensor
+            return Ok([].as_mut_slice());
+        }
         let fun = api.GetTensorMutableData.unwrap();
         let mut ptr: *mut _ = std::ptr::null_mut();
         let data = unsafe {
