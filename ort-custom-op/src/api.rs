@@ -5,7 +5,7 @@ use ndarray::{ArrayD, ArrayViewD, ArrayViewMut, ArrayViewMutD};
 
 use crate::bindings::*;
 use crate::error::ErrorStatus;
-use crate::inputs::TryFromValue;
+use crate::inputs::Input;
 use crate::value::{BufferMaybeOwned, ValueBuffer};
 
 pub const API_VERSION: u32 = 16;
@@ -256,6 +256,7 @@ impl OrtKernelContext {
     }
 
     /// Get `OrtValue` for input with index `idx`.
+    #[allow(non_upper_case_globals)]
     fn get_input_value<'s>(
         &'s self,
         api: &OrtApi,
@@ -266,6 +267,7 @@ impl OrtKernelContext {
         let mut value: *const OrtValue = std::ptr::null();
         api.status_to_result(unsafe { fun(self, idx, &mut (value)) })?;
 
+        dbg!(value);
         // Code crime!
         let value = unsafe { &mut *(value as *mut OrtValue) };
         match value.onnx_type(api)? {
@@ -391,7 +393,7 @@ impl<'info> KernelInfo<'info> {
     pub fn get_attribute_tensor<T>(&self, name: &str) -> Result<ArrayD<T>>
     where
         T: Copy,
-        for<'s> ArrayViewD<'s, T>: TryFromValue<'s>,
+        for<'s> ArrayViewD<'s, T>: Input<'s>,
     {
         // Todo: What is going on with the allocator here?
         let get_alloc = self.api.GetAllocatorWithDefaultOptions.unwrap();

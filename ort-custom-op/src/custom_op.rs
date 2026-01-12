@@ -1,7 +1,7 @@
 use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
 
-use crate::api::{KernelInfo, API_VERSION};
+use crate::api::{API_VERSION, KernelInfo};
 use crate::bindings::{
     ONNXTensorElementDataType, OrtApi, OrtCustomOp, OrtCustomOpInputOutputCharacteristic,
     OrtErrorCode_ORT_RUNTIME_EXCEPTION, OrtKernelContext, OrtKernelInfo, OrtMemType,
@@ -187,7 +187,7 @@ where
         let bufs: Vec<_> = bufs.iter().map(|el| el.normalize_buffers()).collect();
         let input_values: anyhow::Result<Vec<_>> = bufs.iter().map(|el| el.as_value()).collect();
         let input_values = bail_on_error!(api, input_values);
-        let tuple = bail_on_error!(api, Inputs::try_from_values(input_values));
+        let tuple = bail_on_error!(api, T::OpInputs::try_from_values(input_values));
         bail_on_error!(api, user_kernel.kernel_compute(tuple))
     };
 
