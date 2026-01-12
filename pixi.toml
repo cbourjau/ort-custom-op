@@ -2,7 +2,7 @@
 authors = ["Christian Bourjau <christian.bourjau@quantco.com>"]
 channels = ["conda-forge"]
 name = "ort-custom-op"
-platforms = ["osx-arm64"]
+platforms = ["osx-arm64", "linux-64", "win-64"]
 version = "0.1.0"
 
 [tasks]
