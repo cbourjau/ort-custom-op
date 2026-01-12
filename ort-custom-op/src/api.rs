@@ -114,7 +114,7 @@ impl OrtValue {
     }
 
     /// Get a mutable view for this `Value`. The type is not validated.
-    pub unsafe fn as_array_mut<T>(&mut self, api: &OrtApi) -> Result<ArrayViewMutD<T>> {
+    pub unsafe fn as_array_mut<T>(&mut self, api: &OrtApi) -> Result<ArrayViewMutD<'_, T>> {
         let shape = self.shape(api)?;
         let data = self.get_data_mut(api)?;
         Ok(ArrayViewMut::from(data).into_shape(shape.as_slice())?)

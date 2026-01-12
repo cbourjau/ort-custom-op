@@ -1,0 +1,39 @@
+[workspace]
+authors = ["Christian Bourjau <christian.bourjau@quantco.com>"]
+channels = ["conda-forge"]
+name = "ort-custom-op"
+platforms = ["osx-arm64"]
+version = "0.1.0"
+
+[tasks]
+build = "cargo build --all"
+clippy = "cargo clippy"
+fmt = "cargo fmt"
+
+[dependencies]
+rust = ">=1.92.0"
+rust-src = ">=1.92.0"
+
+[feature.test.dependencies]
+mypy = ">=1.19.1,<2"
+onnx = ">=1.20.0,<2"
+python = ">=3.13.11"
+pytest = ">=9.0.2"
+onnxruntime = ">=1.22.2,<2"
+numpy = ">=2.4.0,<3"
+[feature.test.tasks]
+test = "cargo b && pytest tests/python -s"
+
+[feature.lint.dependencies]
+ruff = ">=0.14.11,<0.15"
+prettier = ">=3.7.4,<4"
+typos = ">=1.42.0,<2"
+pre-commit = ">=4.5.1,<5"
+pre-commit-hooks = ">=5.0.0,<6"
+[feature.lint.tasks]
+pre-commit-install = "pre-commit install"
+pre-commit-run = "pre-commit run -a"
+
+[environments]
+default = ["test", "lint"]
+lint = { features = ["lint"], no-default-feature = true }

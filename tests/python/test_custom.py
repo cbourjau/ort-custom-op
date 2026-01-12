@@ -1,8 +1,8 @@
 from pathlib import Path
 from platform import platform
-import pytest
 import re
 
+import pytest
 from onnx import IR_VERSION_2023_5_5, helper, TensorProto
 from onnx import numpy_helper
 import numpy as np

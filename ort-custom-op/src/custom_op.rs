@@ -116,7 +116,7 @@ where
 }
 
 extern "C" fn get_execution_provider_type(_op: *const OrtCustomOp) -> *const c_char {
-    b"CPUExecutionProvider\0".as_ptr() as *const _
+    c"CPUExecutionProvider".as_ptr()
 }
 
 extern "C" fn get_input_type<T>(_op: *const OrtCustomOp, index: usize) -> ONNXTensorElementDataType

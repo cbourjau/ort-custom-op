@@ -6,3 +6,6 @@ rust/custom_op/target/*
 /.envrc
 *__pycache__
 /envs/
+# pixi environments
+.pixi/*
+!.pixi/config.toml
