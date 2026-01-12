@@ -282,10 +282,15 @@ def fallible_model(with_attr: bool):
 
 @pytest.fixture
 def shared_lib() -> Path:
-    if "macOS" in platform():
+    plat = platform().lower()
+    if "macos" in plat:
         file_name = "libexample.dylib"
-    else:
+    elif "linux" in plat:
         file_name = "libexample.so"
+    elif "win" in plat:
+        file_name = "example.dll"
+    else:
+        raise ValueError(f"unexpected platform `{plat}`")
     path = ROOT / f"target/debug/deps/{file_name}"
     if not path.exists():
         raise FileNotFoundError("Unable to find '{0}'".format(path))
