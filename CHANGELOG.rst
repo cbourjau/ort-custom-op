@@ -7,6 +7,14 @@
 Changelog
 =========
 
+0.8.0 (2026-01-12)
+------------------
+
+**New feature**
+
+- Added support for optional inputs.
+
+
 0.7.2 (2024-09-03)
 ------------------
 
