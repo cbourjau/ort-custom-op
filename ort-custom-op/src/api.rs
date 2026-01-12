@@ -203,20 +203,7 @@ impl OrtKernelContext {
         let n_inputs = self.get_input_count(api)?;
         let mut inputs = Vec::with_capacity(n_inputs);
         for idx in 0..n_inputs {
-            let value = self.get_input(api, idx)?;
-            match value.onnx_type(api)? {
-                ONNXType_ONNX_TYPE_TENSOR => {
-                    let (dtype, shape) = {
-                        let info = value.get_tensor_type_and_shape(api)?;
-                        (info.get_element_type()?, info.shape()?)
-                    };
-                    // Unsafe invariant: dtype must match value
-                    unsafe {
-                        inputs.push(value.load_tensor_buffer(api, dtype, shape)?);
-                    }
-                }
-                _ => bail!("Only tensor inputs are supported."),
-            }
+            inputs.push(self.get_input_value(api, idx)?);
         }
         Ok(inputs)
     }
@@ -269,7 +256,11 @@ impl OrtKernelContext {
     }
 
     /// Get `OrtValue` for input with index `idx`.
-    fn get_input<'s>(&'s self, api: &OrtApi, idx: usize) -> Result<&'s mut OrtValue> {
+    fn get_input_value<'s>(
+        &'s self,
+        api: &OrtApi,
+        idx: usize,
+    ) -> Result<ValueBuffer<BufferMaybeOwned<'s>, Vec<usize>>> {
         let fun = api.KernelContext_GetInput.unwrap();
 
         let mut value: *const OrtValue = std::ptr::null();
@@ -277,7 +268,17 @@ impl OrtKernelContext {
 
         // Code crime!
         let value = unsafe { &mut *(value as *mut OrtValue) };
-        Ok(value)
+        match value.onnx_type(api)? {
+            ONNXType_ONNX_TYPE_TENSOR => {
+                let (dtype, shape) = {
+                    let info = value.get_tensor_type_and_shape(api)?;
+                    (info.get_element_type()?, info.shape()?)
+                };
+                // Unsafe invariant: dtype must match value
+                Ok(unsafe { value.load_tensor_buffer(api, dtype, shape)? })
+            }
+            _ => bail!("Only tensor inputs are supported."),
+        }
     }
 }
 
