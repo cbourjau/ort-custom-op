@@ -79,7 +79,7 @@ where
     }
 }
 
-/// Conditionaly return with a non-null `OrtStatus` pointer from a result.
+/// Conditionally return with a non-null `OrtStatus` pointer from a result.
 ///
 /// Return if the provided result is the error variant. Otherwise,
 /// unwrap the `Ok` value.
