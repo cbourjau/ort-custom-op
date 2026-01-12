@@ -23,7 +23,7 @@ pub trait Inputs<'a>: Sized {
     const NUM_POSITIONAL: usize;
 
     /// Create inputs from `Value` objects
-    fn try_from_values(values: Vec<Value<'a>>) -> Result<Self>;
+    fn try_from_values(values: Vec<Option<Value<'a>>>) -> Result<Self>;
 
     /// Tensor data type of this input, or `None` if it is not a Tensor
     fn tensor_data_type(index: usize) -> Option<ONNXTensorElementDataType>;
@@ -34,7 +34,7 @@ pub trait Inputs<'a>: Sized {
 }
 
 pub trait Input<'s>: Sized {
-    fn try_from_value(value: Value<'s>) -> Result<Self>;
+    fn try_from_value(value: Option<Value<'s>>) -> Result<Self>;
     fn characteristic() -> OrtCustomOpInputOutputCharacteristic;
 }
 
@@ -48,8 +48,8 @@ trait OnnxTensorDtype {
 /////////////////////
 
 impl<'s> Input<'s> for ArrayViewD<'s, &'s str> {
-    fn try_from_value(value: Value<'s>) -> Result<Self> {
-        if let Value::TensorStr(arr) = value {
+    fn try_from_value(value: Option<Value<'s>>) -> Result<Self> {
+        if let Some(Value::TensorStr(arr)) = value {
             Ok(arr)
         } else {
             bail!("Expected 'String' tensor, found {:?}", value)
@@ -60,10 +60,16 @@ impl<'s> Input<'s> for ArrayViewD<'s, &'s str> {
     }
 }
 
-impl<'s, T> Input<'s> for Option<T> {
-    fn try_from_value(value: Value<'s>) -> Result<Self> {
-        dbg!(&value);
-        unimplemented!()
+impl<'s, T> Input<'s> for Option<T>
+where
+    T: Input<'s>,
+{
+    fn try_from_value(value: Option<Value<'s>>) -> Result<Self> {
+        if value.is_none() {
+            Ok(None)
+        } else {
+            T::try_from_value(value).map(Some)
+        }
     }
     fn characteristic() -> OrtCustomOpInputOutputCharacteristic {
         OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_OPTIONAL
@@ -73,8 +79,8 @@ impl<'s, T> Input<'s> for Option<T> {
 macro_rules! impl_try_from {
     ($ty:ty, $variant:path) => {
         impl<'a> Input<'a> for ArrayViewD<'a, $ty> {
-            fn try_from_value(value: Value<'a>) -> Result<Self> {
-                if let $variant(arr) = value {
+            fn try_from_value(value: Option<Value<'a>>) -> Result<Self> {
+                if let Some($variant(arr)) = value {
                     Ok(arr)
                 } else {
                     bail!("Expected '{}' tensor, found {:?}", stringify!($ty), value)
@@ -108,7 +114,7 @@ where
     const VARIADIC_IS_HOMOGENEOUS: Option<bool> = Some(true);
     const NUM_POSITIONAL: usize = 0;
 
-    fn try_from_values(values: Vec<Value<'s>>) -> Result<Self> {
+    fn try_from_values(values: Vec<Option<Value<'s>>>) -> Result<Self> {
         let rest = values
             .into_iter()
             .map(|el| Input::try_from_value(el))
@@ -136,7 +142,7 @@ macro_rules! impl_inputs {
             const VARIADIC_IS_HOMOGENEOUS: Option<bool> = if $is_variadic {Some(true)} else { None };
             const NUM_POSITIONAL: usize = $n_min;
 
-            fn try_from_values(values: Vec<Value<'s>>) -> Result<Self>
+            fn try_from_values(values: Vec<Option<Value<'s>>>) -> Result<Self>
             {
                 if $is_variadic {
                     if values.len() < $n_min {

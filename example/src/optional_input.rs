@@ -1,30 +1,23 @@
-use std::{convert::Infallible, marker::PhantomData, ops::Add};
+use std::convert::Infallible;
 
 use ndarray::{ArrayD, ArrayViewD};
 
 use ort_custom_op::prelude::*;
 
 /// A custom operator which adds its two inputs
-pub struct OptionalInput<T> {
-    ty: PhantomData<T>,
-}
+pub struct OptionalAdd;
 
-impl<T> CustomOp for OptionalInput<T>
-where
-    T: 'static + Add<T, Output = T> + Clone,
-    for<'a> (ArrayViewD<'a, T>, Option<ArrayViewD<'a, T>>): Inputs<'a>,
-    (ArrayD<T>,): Outputs,
-{
+impl CustomOp for OptionalAdd {
     type KernelCreateError = Infallible;
     type ComputeError = Infallible;
 
-    const NAME: &'static str = "OptionalInput";
+    const NAME: &'static str = "OptionalAdd";
 
-    type OpInputs<'s> = (ArrayViewD<'s, T>, Option<ArrayViewD<'s, T>>);
-    type OpOutputs = (ArrayD<T>,);
+    type OpInputs<'s> = (ArrayViewD<'s, f64>, Option<ArrayViewD<'s, f64>>);
+    type OpOutputs = (ArrayD<f64>,);
 
     fn kernel_create(_info: &KernelInfo) -> Result<Self, Self::KernelCreateError> {
-        Ok(OptionalInput { ty: PhantomData })
+        Ok(OptionalAdd)
     }
 
     fn kernel_compute(

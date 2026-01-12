@@ -17,10 +17,11 @@ def onnx_tensor_type(request):
 
 
 @pytest.fixture
-def optional_input_model(onnx_tensor_type, second_input_missing: bool):
+def optional_input_model(second_input_missing: bool):
+    onnx_tensor_type = TensorProto.DOUBLE
     second_input_name = "" if second_input_missing else "B"
     node = helper.make_node(
-        "OptionalInput", ["A", second_input_name], ["C"], domain="my.domain"
+        "OptionalAdd", ["A", second_input_name], ["C"], domain="my.domain"
     )
     value_infos_input = [
         helper.make_value_info(
@@ -346,18 +347,18 @@ def setup_session(shared_lib: Path, model) -> onnxrt.InferenceSession:
     )
 
 
-@pytest.mark.parametrize("second_input_missing", [True])
-def test_optional_input(
-    shared_lib, optional_input_model, onnx_tensor_type, second_input_missing: bool
-):
-    dtype = helper.tensor_dtype_to_np_dtype(onnx_tensor_type)
+@pytest.mark.parametrize("second_input_missing", [True, False])
+def test_optional_input(shared_lib, optional_input_model, second_input_missing: bool):
     sess = setup_session(shared_lib, optional_input_model)
     # Run with input data
-    inputs = {el.name: np.ones((3, 5)).astype(dtype) + i for i, el in enumerate(sess.get_inputs())}
+    inputs = {
+        el.name: np.ones((3, 5), np.float64) + i
+        for i, el in enumerate(sess.get_inputs())
+    }
     output_name = sess.get_outputs()[0].name
     res = sess.run([output_name], inputs)
-    output_expected = np.ones((3, 5)).astype(dtype)
-    np.testing.assert_allclose(output_expected, res[0], rtol=1e-05, atol=1e-08)
+    output_expected = sum(inputs.values())
+    np.testing.assert_allclose(output_expected, res[0])
 
 
 def test_custom_add(shared_lib, custom_add_model, onnx_tensor_type):
