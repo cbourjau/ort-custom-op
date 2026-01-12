@@ -90,10 +90,9 @@ macro_rules! bail_on_error {
             Err(err) => {
                 // msg is copied inside `CreateStatus`; no need to leak
                 let msg = CString::new(format!("{}: {}", T::NAME, err)).unwrap();
-                return $api.CreateStatus.unwrap()(
-                    OrtErrorCode_ORT_RUNTIME_EXCEPTION,
-                    msg.as_ptr(),
-                );
+                return unsafe {
+                    $api.CreateStatus.unwrap()(OrtErrorCode_ORT_RUNTIME_EXCEPTION, msg.as_ptr())
+                };
             }
         }
     };
@@ -161,13 +160,15 @@ where
     T: CustomOp,
     T::KernelCreateError: std::fmt::Display,
 {
-    let api = &*ort_api;
-    let info = KernelInfo::from_ort(api, &*ort_info);
+    let api = unsafe { &*ort_api };
+    let info = KernelInfo::from_ort(api, unsafe { &*ort_info });
     let user_kernel = bail_on_error!(api, T::kernel_create(&info));
     let wrapped_kernel = WrappedKernel { user_kernel, api };
 
     // Kernel is later destroyed in `kernel_destroy`
-    *kernel = Box::leak(Box::new(wrapped_kernel)) as *mut _ as *mut c_void;
+    unsafe {
+        *kernel = Box::leak(Box::new(wrapped_kernel)) as *mut _ as *mut c_void;
+    }
     std::ptr::null_mut()
 }
 
@@ -179,9 +180,9 @@ where
     T: CustomOp,
     T::ComputeError: std::fmt::Display,
 {
-    let WrappedKernel::<T> { user_kernel, api } = &mut *(op_kernel as *mut _);
+    let WrappedKernel::<T> { user_kernel, api } = unsafe { &mut *(op_kernel as *mut _) };
 
-    let context = context_ptr.as_mut::<'_>().unwrap();
+    let context = unsafe { context_ptr.as_mut::<'_>() }.unwrap();
     let outputs = {
         let bufs = bail_on_error!(api, context.get_input_values(api));
         let bufs: Vec<_> = bufs.iter().map(|el| el.normalize_buffers()).collect();
@@ -199,7 +200,7 @@ unsafe extern "C" fn kernel_destroy<T>(op_kernel: *mut c_void)
 where
     T: CustomOp,
 {
-    drop(Box::from_raw(op_kernel as *mut WrappedKernel<T>));
+    drop(unsafe { Box::from_raw(op_kernel as *mut WrappedKernel<T>) });
 }
 
 extern "C" fn get_input_characteristic<T>(

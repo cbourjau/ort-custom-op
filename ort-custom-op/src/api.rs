@@ -1,6 +1,6 @@
-use std::ffi::{c_char, CString};
+use std::ffi::{CString, c_char};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use ndarray::{ArrayD, ArrayViewD, ArrayViewMut, ArrayViewMutD};
 
 use crate::bindings::*;
@@ -108,7 +108,7 @@ impl OrtValue {
         shape: Vec<usize>,
     ) -> Result<ValueBuffer<BufferMaybeOwned<'s>, Vec<usize>>> {
         Ok(ValueBuffer::Tensor {
-            buf: BufferMaybeOwned::load_from_ort(api, self, &dtype)?,
+            buf: unsafe { BufferMaybeOwned::load_from_ort(api, self, &dtype) }?,
             shape,
         })
     }
@@ -116,7 +116,7 @@ impl OrtValue {
     /// Get a mutable view for this `Value`. The type is not validated.
     pub unsafe fn as_array_mut<T>(&mut self, api: &OrtApi) -> Result<ArrayViewMutD<'_, T>> {
         let shape = self.shape(api)?;
-        let data = self.get_data_mut(api)?;
+        let data = unsafe { self.get_data_mut(api) }?;
         Ok(ArrayViewMut::from(data).into_shape(shape.as_slice())?)
     }
 
@@ -270,6 +270,7 @@ impl OrtKernelContext {
         dbg!(value);
         // Code crime!
         let value = unsafe { &mut *(value as *mut OrtValue) };
+        #[allow(non_upper_case_globals)]
         match value.onnx_type(api)? {
             ONNXType_ONNX_TYPE_TENSOR => {
                 let (dtype, shape) = {
