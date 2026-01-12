@@ -17,7 +17,7 @@ const OP_VARIADIC_IDENTITY: OrtCustomOp = build::<variadic_identity::VariadicIde
 const OP_FALLIBLE: OrtCustomOp = build::<fallible_op::FallibleOp>();
 
 /// Public function which onnxruntime expects to be in the shared library
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn RegisterCustomOps(
     options: &mut OrtSessionOptions,
     api_base: &mut OrtApiBase,

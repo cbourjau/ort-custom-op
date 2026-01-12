@@ -4,7 +4,7 @@ use crate::bindings::{
     OrtCustomOpInputOutputCharacteristic_INPUT_OUTPUT_VARIADIC,
 };
 use crate::value::Value;
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use ndarray::ArrayViewD;
 
 /// Trait defining which types can be used as inputs when implementing [crate::prelude::CustomOp].

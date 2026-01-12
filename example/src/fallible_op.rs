@@ -1,4 +1,4 @@
-use anyhow::{bail, Error};
+use anyhow::{Error, bail};
 use ndarray::{ArrayD, ArrayViewD};
 
 use ort_custom_op::prelude::*;
