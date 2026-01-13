@@ -1,8 +1,8 @@
 from pathlib import Path
 from platform import platform
-import pytest
 import re
 
+import pytest
 from onnx import IR_VERSION_2023_5_5, helper, TensorProto
 from onnx import numpy_helper
 import numpy as np
@@ -40,7 +40,11 @@ def custom_add_model(onnx_tensor_type):
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)], ir_version=IR_VERSION_2023_5_5)
+    return helper.make_model(
+        graph,
+        opset_imports=[helper.make_opsetid("my.domain", 1)],
+        ir_version=IR_VERSION_2023_5_5,
+    )
 
 
 @pytest.fixture
@@ -70,7 +74,11 @@ def parse_datetime_model():
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)], ir_version=IR_VERSION_2023_5_5)
+    return helper.make_model(
+        graph,
+        opset_imports=[helper.make_opsetid("my.domain", 1)],
+        ir_version=IR_VERSION_2023_5_5,
+    )
 
 
 @pytest.fixture
@@ -118,7 +126,11 @@ def attr_showcase_model():
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)], ir_version=IR_VERSION_2023_5_5)
+    return helper.make_model(
+        graph,
+        opset_imports=[helper.make_opsetid("my.domain", 1)],
+        ir_version=IR_VERSION_2023_5_5,
+    )
 
 
 @pytest.fixture
@@ -158,7 +170,11 @@ def attr_showcase_model_missing_attributes():
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)], ir_version=IR_VERSION_2023_5_5)
+    return helper.make_model(
+        graph,
+        opset_imports=[helper.make_opsetid("my.domain", 1)],
+        ir_version=IR_VERSION_2023_5_5,
+    )
 
 
 @pytest.fixture
@@ -188,7 +204,12 @@ def custom_sum_model():
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)], ir_version=IR_VERSION_2023_5_5)
+    return helper.make_model(
+        graph,
+        opset_imports=[helper.make_opsetid("my.domain", 1)],
+        ir_version=IR_VERSION_2023_5_5,
+    )
+
 
 @pytest.fixture
 def variadic_identity_model():
@@ -219,7 +240,11 @@ def variadic_identity_model():
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)], ir_version=IR_VERSION_2023_5_5)
+    return helper.make_model(
+        graph,
+        opset_imports=[helper.make_opsetid("my.domain", 1)],
+        ir_version=IR_VERSION_2023_5_5,
+    )
 
 
 def fallible_model(with_attr: bool):
@@ -248,15 +273,24 @@ def fallible_model(with_attr: bool):
         value_infos_input,
         value_infos_output,
     )
-    return helper.make_model(graph, opset_imports=[helper.make_opsetid("my.domain", 1)], ir_version=IR_VERSION_2023_5_5)
+    return helper.make_model(
+        graph,
+        opset_imports=[helper.make_opsetid("my.domain", 1)],
+        ir_version=IR_VERSION_2023_5_5,
+    )
 
 
 @pytest.fixture
 def shared_lib() -> Path:
-    if "macOS" in platform():
+    plat = platform().lower()
+    if "macos" in plat:
         file_name = "libexample.dylib"
-    else:
+    elif "linux" in plat:
         file_name = "libexample.so"
+    elif "win" in plat:
+        file_name = "example.dll"
+    else:
+        raise ValueError(f"unexpected platform `{plat}`")
     path = ROOT / f"target/debug/deps/{file_name}"
     if not path.exists():
         raise FileNotFoundError("Unable to find '{0}'".format(path))
@@ -272,9 +306,7 @@ def setup_session(shared_lib: Path, model) -> onnxrt.InferenceSession:
     # Model loading successfully indicates that the custom op node
     # could be resolved successfully
     return onnxrt.InferenceSession(
-        model.SerializeToString(),
-        sess_options=so,
-        providers=['CPUExecutionProvider']
+        model.SerializeToString(), sess_options=so, providers=["CPUExecutionProvider"]
     )
 
 
@@ -296,9 +328,9 @@ def test_parse_datetime(shared_lib, parse_datetime_model):
     sess = setup_session(shared_lib, parse_datetime_model)
     # Run with input data
     input_feed = {
-        sess.get_inputs()[0]
-        .name: np.array(["5.8.1994 8:00 am +0000", "5.8.2022 8:00 am +0000"])
-        .astype(np.str_),
+        sess.get_inputs()[0].name: np.array(
+            ["5.8.1994 8:00 am +0000", "5.8.2022 8:00 am +0000"]
+        ).astype(np.str_),
     }
     output_name = sess.get_outputs()[0].name
     res = sess.run([output_name], input_feed)
@@ -320,14 +352,12 @@ def test_attr_showcase(shared_lib, attr_showcase_model):
     np.testing.assert_equal(c, ["foo + bar"])
 
 
-@pytest.mark.skip(
-    reason="Crashes the interpreter but prints a decent error message."
-)
+@pytest.mark.skip(reason="Crashes the interpreter but prints a decent error message.")
 def test_attr_showcase_missing_attrs(
     shared_lib,
     attr_showcase_model_missing_attributes,
 ):
-    sess = setup_session(shared_lib, attr_showcase_model_missing_attributes)
+    _sess = setup_session(shared_lib, attr_showcase_model_missing_attributes)
 
 
 def test_custom_sum(shared_lib, custom_sum_model):
@@ -357,7 +387,10 @@ def test_variadic_identity(shared_lib, variadic_identity_model):
 def test_fail_create_kernel_missing_attr(shared_lib):
     model = fallible_model(with_attr=False)
 
-    with pytest.raises(onnxrt.capi.onnxruntime_pybind11_state.RuntimeException, match=re.escape("FallibleOp:")):
+    with pytest.raises(
+        onnxrt.capi.onnxruntime_pybind11_state.RuntimeException,
+        match=re.escape("FallibleOp:"),
+    ):
         setup_session(shared_lib, model)
 
 
@@ -365,7 +398,10 @@ def test_fail_compute(shared_lib):
     model = fallible_model(with_attr=True)
     sess = setup_session(shared_lib, model)
 
-    with pytest.raises(onnxrt.capi.onnxruntime_pybind11_state.RuntimeException, match=re.escape("FallibleOp:")):
+    with pytest.raises(
+        onnxrt.capi.onnxruntime_pybind11_state.RuntimeException,
+        match=re.escape("FallibleOp:"),
+    ):
         sess.run(None, {"fail": np.array(True)})
 
     # Don't fail depending on input
@@ -384,12 +420,12 @@ def test_zero_size_input_numeric(shared_lib, variadic_identity_model):
     np.testing.assert_equal(a, c)
     np.testing.assert_equal(b, d)
 
+
 def test_zero_size_input_strings(shared_lib, parse_datetime_model):
     sess = setup_session(shared_lib, parse_datetime_model)
     # Run with input data
     input_feed = {
-        sess.get_inputs()[0]
-        .name: np.array([], dtype=str).astype(np.str_),
+        sess.get_inputs()[0].name: np.array([], dtype=str).astype(np.str_),
     }
     output_name = sess.get_outputs()[0].name
     res = sess.run([output_name], input_feed)

@@ -90,7 +90,7 @@ impl<'s> BufferMaybeOwned<'s> {
         })
     }
 
-    pub fn view(&self) -> Buffer {
+    pub fn view(&self) -> Buffer<'_> {
         match self {
             Self::Bool(buf) => Buffer::Bool(buf),
             Self::F32(buf) => Buffer::F32(buf),

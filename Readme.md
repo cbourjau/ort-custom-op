@@ -1,5 +1,4 @@
-Proof of concept for writing custom operators for onnxruntime
-=============================================================
+# Proof of concept for writing custom operators for onnxruntime
 
 Custom operators can be made available to the onnxruntime by creating a shared library with a standardized API.
 Directly interfacing with the API and types exposed by onnxruntime is quite cumbersome and error prone, though.

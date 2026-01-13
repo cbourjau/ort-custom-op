@@ -79,7 +79,7 @@ where
     }
 }
 
-/// Conditionaly return with a non-null `OrtStatus` pointer from a result.
+/// Conditionally return with a non-null `OrtStatus` pointer from a result.
 ///
 /// Return if the provided result is the error variant. Otherwise,
 /// unwrap the `Ok` value.
@@ -116,7 +116,7 @@ where
 }
 
 extern "C" fn get_execution_provider_type(_op: *const OrtCustomOp) -> *const c_char {
-    b"CPUExecutionProvider\0".as_ptr() as *const _
+    c"CPUExecutionProvider".as_ptr()
 }
 
 extern "C" fn get_input_type<T>(_op: *const OrtCustomOp, index: usize) -> ONNXTensorElementDataType
