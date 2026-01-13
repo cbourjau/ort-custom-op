@@ -25,11 +25,11 @@ numpy = ">=2.4.0,<3"
 test = "cargo b && pytest tests/python -s"
 
 [feature.lint.dependencies]
-ruff = ">=0.14.11,<0.15"
-prettier = ">=3.7.4,<4"
-typos = ">=1.42.0,<2"
-pre-commit = ">=4.5.1,<5"
-pre-commit-hooks = ">=5.0.0,<6"
+ruff = ">=0.14.11"
+prettier = ">=3.7.4"
+typos = ">=1.42.0"
+pre-commit = ">=4.5.1"
+pre-commit-hooks = ">=5.0.0"
 [feature.lint.tasks]
 pre-commit-install = "pre-commit install"
 pre-commit-run = "pre-commit run -a"
