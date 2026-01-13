@@ -71,21 +71,23 @@ impl<'s> BufferMaybeOwned<'s> {
         dtype: &ElementType,
     ) -> Result<Self> {
         // tensor data
-        Ok(match dtype {
-            ElementType::U8 => Self::U8(ort_value.get_data_mut(api)?),
-            ElementType::U16 => Self::U16(ort_value.get_data_mut(api)?),
-            ElementType::U32 => Self::U32(ort_value.get_data_mut(api)?),
-            ElementType::U64 => Self::U64(ort_value.get_data_mut(api)?),
-            ElementType::I8 => Self::I8(ort_value.get_data_mut(api)?),
-            ElementType::I16 => Self::I16(ort_value.get_data_mut(api)?),
-            ElementType::I32 => Self::I32(ort_value.get_data_mut(api)?),
-            ElementType::I64 => Self::I64(ort_value.get_data_mut(api)?),
-            ElementType::F32 => Self::F32(ort_value.get_data_mut(api)?),
-            ElementType::F64 => Self::F64(ort_value.get_data_mut(api)?),
-            ElementType::Bool => Self::Bool(ort_value.get_data_mut(api)?),
-            ElementType::String => {
-                let (buf, offsets) = ort_value.get_string_tensor_single_buf(api)?;
-                Self::String(StringBuffer { buf, offsets })
+        Ok(unsafe {
+            match dtype {
+                ElementType::U8 => Self::U8(ort_value.get_data_mut(api)?),
+                ElementType::U16 => Self::U16(ort_value.get_data_mut(api)?),
+                ElementType::U32 => Self::U32(ort_value.get_data_mut(api)?),
+                ElementType::U64 => Self::U64(ort_value.get_data_mut(api)?),
+                ElementType::I8 => Self::I8(ort_value.get_data_mut(api)?),
+                ElementType::I16 => Self::I16(ort_value.get_data_mut(api)?),
+                ElementType::I32 => Self::I32(ort_value.get_data_mut(api)?),
+                ElementType::I64 => Self::I64(ort_value.get_data_mut(api)?),
+                ElementType::F32 => Self::F32(ort_value.get_data_mut(api)?),
+                ElementType::F64 => Self::F64(ort_value.get_data_mut(api)?),
+                ElementType::Bool => Self::Bool(ort_value.get_data_mut(api)?),
+                ElementType::String => {
+                    let (buf, offsets) = ort_value.get_string_tensor_single_buf(api)?;
+                    Self::String(StringBuffer { buf, offsets })
+                }
             }
         })
     }
