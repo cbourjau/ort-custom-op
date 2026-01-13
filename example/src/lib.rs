@@ -4,11 +4,13 @@ mod add;
 mod attr_showcase;
 mod datetime;
 mod fallible_op;
+mod optional_input;
 mod sum;
 mod variadic_identity;
 
 /// Static objects defining the custom operators
 const OP_ATTR_SHOWCASE: OrtCustomOp = build::<attr_showcase::AttrShowcase>();
+const OP_OPTIONAL_ADD: OrtCustomOp = build::<optional_input::OptionalAdd>();
 const OP_CUSTOM_ADD_F32: OrtCustomOp = build::<add::CustomAdd<f32>>();
 const OP_CUSTOM_ADD_F64: OrtCustomOp = build::<add::CustomAdd<f64>>();
 const OP_CUSTOM_SUM: OrtCustomOp = build::<sum::CustomSum>();
@@ -34,6 +36,7 @@ pub extern "C" fn RegisterCustomOps(
             &OP_PARSE_DATETIME,
             &OP_VARIADIC_IDENTITY,
             &OP_FALLIBLE,
+            &OP_OPTIONAL_ADD,
         ],
     )
 }

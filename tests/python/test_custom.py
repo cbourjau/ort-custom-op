@@ -17,6 +17,43 @@ def onnx_tensor_type(request):
 
 
 @pytest.fixture
+def optional_input_model(second_input_missing: bool):
+    onnx_tensor_type = TensorProto.DOUBLE
+    second_input_name = "" if second_input_missing else "B"
+    node = helper.make_node(
+        "OptionalAdd", ["A", second_input_name], ["C"], domain="my.domain"
+    )
+    value_infos_input = [
+        helper.make_value_info(
+            "A", helper.make_tensor_type_proto(onnx_tensor_type, [None, None])
+        ),
+    ]
+    if not second_input_missing:
+        value_infos_input.append(
+            helper.make_value_info(
+                second_input_name,
+                helper.make_tensor_type_proto(onnx_tensor_type, [None, None]),
+            )
+        )
+    value_infos_output = [
+        helper.make_value_info(
+            "C", helper.make_tensor_type_proto(onnx_tensor_type, [None, None])
+        ),
+    ]
+    graph = helper.make_graph(
+        [node],
+        "graph",
+        value_infos_input,
+        value_infos_output,
+    )
+    return helper.make_model(
+        graph,
+        opset_imports=[helper.make_opsetid("my.domain", 1)],
+        ir_version=IR_VERSION_2023_5_5,
+    )
+
+
+@pytest.fixture
 def custom_add_model(onnx_tensor_type):
     # Using custom operators with the DSL (i.e. `onnx.parse`) for
     # defining ONNX models seems to be unsupported...
@@ -308,6 +345,20 @@ def setup_session(shared_lib: Path, model) -> onnxrt.InferenceSession:
     return onnxrt.InferenceSession(
         model.SerializeToString(), sess_options=so, providers=["CPUExecutionProvider"]
     )
+
+
+@pytest.mark.parametrize("second_input_missing", [True, False])
+def test_optional_input(shared_lib, optional_input_model, second_input_missing: bool):
+    sess = setup_session(shared_lib, optional_input_model)
+    # Run with input data
+    inputs = {
+        el.name: np.ones((3, 5), np.float64) + i
+        for i, el in enumerate(sess.get_inputs())
+    }
+    output_name = sess.get_outputs()[0].name
+    res = sess.run([output_name], inputs)
+    output_expected = sum(inputs.values())
+    np.testing.assert_allclose(output_expected, res[0])
 
 
 def test_custom_add(shared_lib, custom_add_model, onnx_tensor_type):

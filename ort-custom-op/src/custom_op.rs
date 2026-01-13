@@ -185,10 +185,18 @@ where
     let context = unsafe { context_ptr.as_mut::<'_>() }.unwrap();
     let outputs = {
         let bufs = bail_on_error!(api, context.get_input_values(api));
-        let bufs: Vec<_> = bufs.iter().map(|el| el.normalize_buffers()).collect();
-        let input_values: anyhow::Result<Vec<_>> = bufs.iter().map(|el| el.as_value()).collect();
+        // Owned buffers
+        let bufs: Vec<_> = bufs
+            .iter()
+            .map(|el| el.as_ref().map(|some_buf| some_buf.normalize_buffers()))
+            .collect();
+        // Create arrays borrowing from owned buffers
+        let input_values: anyhow::Result<Vec<Option<_>>> = bufs
+            .iter()
+            .map(|el| el.as_ref().map(|some_buf| some_buf.as_value()).transpose())
+            .collect();
         let input_values = bail_on_error!(api, input_values);
-        let tuple = bail_on_error!(api, Inputs::try_from_values(input_values));
+        let tuple = bail_on_error!(api, T::OpInputs::try_from_values(input_values));
         bail_on_error!(api, user_kernel.kernel_compute(tuple))
     };
 

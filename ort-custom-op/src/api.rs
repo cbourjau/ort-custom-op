@@ -5,7 +5,7 @@ use ndarray::{ArrayD, ArrayViewD, ArrayViewMut, ArrayViewMutD};
 
 use crate::bindings::*;
 use crate::error::ErrorStatus;
-use crate::inputs::TryFromValue;
+use crate::inputs::Input;
 use crate::value::{BufferMaybeOwned, ValueBuffer};
 
 pub const API_VERSION: u32 = 16;
@@ -199,7 +199,7 @@ impl OrtKernelContext {
     pub(crate) fn get_input_values<'s>(
         &'s self,
         api: &OrtApi,
-    ) -> Result<Vec<ValueBuffer<BufferMaybeOwned<'s>, Vec<usize>>>> {
+    ) -> Result<Vec<Option<ValueBuffer<BufferMaybeOwned<'s>, Vec<usize>>>>> {
         let n_inputs = self.get_input_count(api)?;
         let mut inputs = Vec::with_capacity(n_inputs);
         for idx in 0..n_inputs {
@@ -256,16 +256,22 @@ impl OrtKernelContext {
     }
 
     /// Get `OrtValue` for input with index `idx`.
+    #[allow(non_upper_case_globals)]
     fn get_input_value<'s>(
         &'s self,
         api: &OrtApi,
         idx: usize,
-    ) -> Result<ValueBuffer<BufferMaybeOwned<'s>, Vec<usize>>> {
+    ) -> Result<Option<ValueBuffer<BufferMaybeOwned<'s>, Vec<usize>>>> {
         let fun = api.KernelContext_GetInput.unwrap();
 
         let mut value: *const OrtValue = std::ptr::null();
         api.status_to_result(unsafe { fun(self, idx, &mut (value)) })?;
 
+        if value.is_null() {
+            // successful status with null pointer means that this is
+            // an optional input.
+            return Ok(None);
+        }
         // Code crime!
         let value = unsafe { &mut *(value as *mut OrtValue) };
         #[allow(non_upper_case_globals)]
@@ -276,7 +282,9 @@ impl OrtKernelContext {
                     (info.get_element_type()?, info.shape()?)
                 };
                 // Unsafe invariant: dtype must match value
-                Ok(unsafe { value.load_tensor_buffer(api, dtype, shape)? })
+                Ok(Some(unsafe {
+                    value.load_tensor_buffer(api, dtype, shape)?
+                }))
             }
             _ => bail!("Only tensor inputs are supported."),
         }
@@ -392,7 +400,7 @@ impl<'info> KernelInfo<'info> {
     pub fn get_attribute_tensor<T>(&self, name: &str) -> Result<ArrayD<T>>
     where
         T: Copy,
-        for<'s> ArrayViewD<'s, T>: TryFromValue<'s>,
+        for<'s> ArrayViewD<'s, T>: Input<'s>,
     {
         // Todo: What is going on with the allocator here?
         let get_alloc = self.api.GetAllocatorWithDefaultOptions.unwrap();
@@ -419,7 +427,10 @@ impl<'info> KernelInfo<'info> {
         let buf = unsafe { value.load_tensor_buffer(self.api, dtype, shape)? };
         let buf = buf.normalize_buffers();
 
-        let view = <ArrayViewD<'_, T>>::try_from_value(buf.as_value()?)?;
+        // Tensor-loading code for attributes and inputs is
+        // shared. Inputs may be optional which is why we need the
+        // `Some` wrapper below.
+        let view = <ArrayViewD<'_, T>>::try_from_value(Some(buf.as_value()?))?;
         Ok(view.to_owned())
     }
 }
